@@ -9,6 +9,8 @@ on:
 jobs:
   poll:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read  # Minimal permissions needed for checkout
     
     steps:
       - name: Checkout repository

@@ -28,6 +28,7 @@ jobs:
       - name: Run poll script
         env:
           API_KEY: ${{ secrets.API_KEY }}
+          # API_URL can be a secret or environment variable depending on your needs
           API_URL: ${{ secrets.API_URL }}
         run: |
           python poll.py

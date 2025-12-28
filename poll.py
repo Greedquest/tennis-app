@@ -16,10 +16,14 @@ def main():
     
     # Get environment variables (secrets passed from GitHub Actions)
     api_key = os.getenv('API_KEY')
-    api_url = os.getenv('API_URL', 'https://api.example.com')
+    api_url = os.getenv('API_URL')
     
     if not api_key:
         print("Error: API_KEY environment variable not set")
+        sys.exit(1)
+    
+    if not api_url:
+        print("Error: API_URL environment variable not set")
         sys.exit(1)
     
     print(f"Polling endpoint: {api_url}")

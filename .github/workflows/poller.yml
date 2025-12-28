@@ -48,10 +48,10 @@ jobs:
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
           EMAIL_TO:   ${{ secrets.EMAIL_TO }}
 
-          ACCESS_TOKEN:  ${{ secrets.GMAIL_ACCESS_TOKEN }}   # optional
-          REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
-          CLIENT_ID:     ${{ secrets.GMAIL_CLIENT_ID }}
-          CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
+          ACCESS_TOKEN:  ${{ secrets.ACCESS_TOKEN }}   # optional
+          REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
+          CLIENT_ID:     ${{ secrets.CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
         run: |
           python poll.py
 

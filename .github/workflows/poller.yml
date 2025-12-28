@@ -37,6 +37,9 @@ jobs:
         with:
           # Used to specify the packages to install with pip after setting up Python. Can be a requirements file or package names.
           pip-install: requirements.txt
+      
+      - name: Verify Installed Dependencies
+        run: pip list
           
       - name: Run poller
         env:

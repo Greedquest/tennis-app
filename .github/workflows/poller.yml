@@ -1,0 +1,63 @@
+
+name: Poller
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"     # minimum interval; runs in UTC
+  workflow_dispatch:
+
+# prevent overlap
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true    # cancel older in-progress when a new run is queued
+
+permissions:
+  contents: read
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Restore previous state from the newest cache that matches the prefix
+      - name: Restore cached state
+        id: cache-restore
+        uses: actions/cache@v4
+        with:
+          path: cache
+          key: state-${{ runner.os }}-${{ github.run_id }}         # unique per run (forces save)
+          restore-keys: |
+            state-${{ runner.os }}-
+
+      - name: Setup Python
+        uses: actions/setup-python@v6.1.0
+        with:
+          # Used to specify the packages to install with pip after setting up Python. Can be a requirements file or package names.
+          pip-install: requirements.txt
+          
+      - name: Run poller
+        env:
+          DATA_URL: ${{ vars.DATA_URL || 'https://localtenniscourts.com/table/data?venue=1&venue=5&venue=6' }}
+          CACHE_STATE_PATH: cache/state.json
+          LOG_LEVEL: INFO
+
+          # Gmail
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_TO:   ${{ secrets.EMAIL_TO }}
+
+          ACCESS_TOKEN:  ${{ secrets.GMAIL_ACCESS_TOKEN }}   # optional
+          REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
+          CLIENT_ID:     ${{ secrets.GMAIL_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
+        run: |
+          python poll.py
+
+      # Save a new cache (immutable) so the next run can restore the latest via prefix
+      - name: Save cached state for next run
+        uses: actions/cache/save@v4
+        with:
+          path: cache
+          key: state-${{ runner.os }}-${{ github.run_id }}

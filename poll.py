@@ -81,7 +81,7 @@ def tabularise(payload: dict[str, Any]) -> pd.DataFrame:
     )
 
     # Step 6: Filter out rows with empty spaces arrays to avoid NaN values
-    result = result[result["spaces"].apply(lambda x: len(x) > 0 if isinstance(x, list) else False)]
+    result = result[result["spaces"].str.len() > 0]
 
     if result.empty:
         return pd.DataFrame(

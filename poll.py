@@ -83,7 +83,7 @@ def key_of(r: Dict[str, Any]) -> str:
 def load_prev_rows(path: str) -> List[Dict[str, Any]]:
     try:
         with open(path, "r", encoding="utf-8") as f:
-            return tabularise(json.load(f))
+            return json.load(f)
     except FileNotFoundError:
         logging.info("No cached state found; starting fresh.")
         return []

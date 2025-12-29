@@ -118,28 +118,18 @@ def tabularise(payload: dict[str, Any]) -> pd.DataFrame:
     # Note: hour, venue_id, and Attribute are not converted since they will be dropped in Step 11
     result["fromTime"] = pd.to_datetime(result["fromTime"], format="%H:%M", errors="coerce").dt.time
 
-    # Parse dates with year inference from booking_url
-    # The day column has format "DD MMM" (e.g., "30 Dec", "01 Jan")
-    # Extract year from booking_url which contains full date like "2026-01-02"
-    def parse_date_with_year(row):
-        day_str = row["day"]
+    # Parse dates by extracting full date from booking_url
+    # booking_url contains full date like "2026-01-02"
+    import re
+
+    def extract_date_from_url(row):
         booking_url = row.get("booking_url", "")
-
-        # Try to extract year from booking_url
-        import re
-
-        match = re.search(r"/(\d{4})-(\d{2})-(\d{2})/", booking_url)
+        match = re.search(r"/(\d{4}-\d{2}-\d{2})/", booking_url)
         if match:
-            year = match.group(1)
-            # Parse with extracted year
-            date_str = f"{day_str} {year}"
-            return pd.to_datetime(date_str, format="%d %b %Y", errors="coerce")
-        else:
-            # Fallback: try to infer year based on current date
-            # If we can't extract from URL, parse without year and pandas will use current year
-            return pd.to_datetime(day_str, format="%d %b", errors="coerce")
+            return pd.to_datetime(match.group(1), errors="coerce")
+        return pd.NaT
 
-    result["day"] = result.apply(parse_date_with_year, axis=1).dt.date
+    result["day"] = result.apply(extract_date_from_url, axis=1).dt.date
     result["scraped_at"] = pd.to_datetime(result["scraped_at"], errors="coerce")
 
     # Step 10: Rename columns (first rename)

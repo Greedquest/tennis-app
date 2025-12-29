@@ -141,7 +141,7 @@ def send_email(subject: str, body: str) -> str:
     service = build("gmail", "v1", credentials=creds, cache_discovery=False)
 
     msg = MIMEText(body, _charset="utf-8")
-    msg["to"] = ", ".join(EMAIL_TO)
+    msg["to"] = EMAIL_TO
     msg["from"] = EMAIL_FROM
     msg["subject"] = subject
 

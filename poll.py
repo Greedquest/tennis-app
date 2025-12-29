@@ -153,9 +153,7 @@ def load_prev_rows(path: str) -> pd.DataFrame:
         # Convert columns to appropriate types with error handling
         if not df.empty:
             if "Time" in df.columns:
-                df["Time"] = pd.to_datetime(
-                    df["Time"], format="%H:%M:%S", errors="coerce"
-                ).dt.time
+                df["Time"] = pd.to_datetime(df["Time"], format="%H:%M:%S", errors="coerce").dt.time
             if "Date" in df.columns:
                 df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.date
             if "Scraped At" in df.columns:

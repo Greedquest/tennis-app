@@ -101,7 +101,7 @@ def tabularise(payload: dict[str, Any]) -> pd.DataFrame:
             total_spaces_count += 1
         else:
             new_cols.append(col)
-    result.columns = new_cols
+    result.columns = pd.Index(new_cols)
 
     # Step 8: Apply type conversions (matching Power Query)
     result["hour"] = result["hour"].astype("int64")

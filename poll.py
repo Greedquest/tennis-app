@@ -108,8 +108,6 @@ def tabularise(payload: dict[str, Any]) -> pd.DataFrame:
     # Note: hour, venue_id, and Attribute are not converted since they will be dropped in Step 10
     result["fromTime"] = pd.to_datetime(result["fromTime"], format="%H:%M", errors="coerce").dt.time
     result["day"] = pd.to_datetime(result["day"], errors="coerce").dt.date
-    result["Value.total_spaces"] = result["Value.total_spaces"].astype("int64")
-    result["Value.spaces.total_spaces"] = result["Value.spaces.total_spaces"].astype("int64")
     result["scraped_at"] = pd.to_datetime(result["scraped_at"], errors="coerce")
 
     # Step 9: Rename columns (first rename)

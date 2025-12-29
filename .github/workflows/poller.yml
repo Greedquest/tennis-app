@@ -43,7 +43,7 @@ jobs:
 
       - name: Run poller
         env:
-          DATA_URL: ${{ vars.DATA_URL || 'https://localtenniscourts.com/table/data?venue=1&venue=5&venue=6' }}
+          DATA_URL: ${{ secrets.DATA_URL }}
           CACHE_STATE_PATH: cache/state.json
           LOG_LEVEL: INFO
 

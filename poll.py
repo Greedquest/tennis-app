@@ -131,6 +131,9 @@ def send_email(subject: str, changed_rows: List[Dict[str, Any]]) -> None:
     if not APP_PASSWORD:
         raise RuntimeError("APP_PASSWORD not configured")
     
+    if not changed_rows:
+        raise ValueError("changed_rows cannot be empty")
+    
     # Convert list of dicts to pandas DataFrame
     df = pd.DataFrame(changed_rows)
     
@@ -176,8 +179,11 @@ def main() -> int:
         curr_map = {key_of(r): r for r in curr_rows}
         changed_rows = [curr_map[k] for k in changed_keys if k in curr_map]
         
-        logging.info("Sending email with %d changed keys …", len(changed_keys))
-        send_email("Tennis availability changes", changed_rows)
+        if changed_rows:  # Only send email if we have actual rows to display
+            logging.info("Sending email with %d changed keys …", len(changed_keys))
+            send_email("Tennis availability changes", changed_rows)
+        else:
+            logging.warning("Changed keys found but no matching rows to display")
     else:
         logging.info("No changes detected; no email.")
 

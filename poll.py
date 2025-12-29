@@ -4,7 +4,7 @@ import logging
 import os
 import re
 import sys
-from typing import Any, List, Dict
+from typing import Any
 
 import pandas as pd
 import requests
@@ -125,7 +125,7 @@ def diff_tables(curr: list[dict[str, Any]], prev: list[dict[str, Any]]) -> list[
 
 
 # ---------- Gmail SMTP via Red-Mail ----------
-def send_email(subject: str, changed_rows: List[Dict[str, Any]]) -> None:
+def send_email(subject: str, changed_rows: list[dict[str, Any]]) -> None:
     """
     Send an HTML email with a table of changed tennis court availability.
 

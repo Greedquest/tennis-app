@@ -35,20 +35,15 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v6.1.0
         with:
-          cache: 'pip' # caching pip dependencies
-
+          python-version: '3.12'
+          cache: 'pip'
 
       - name: Install deps
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Verify Installed Dependencies
-        run: pip list
+        run: pip install -r requirements.txt
 
       - name: Run poller
         env:
-          DATA_URL: ${{ vars.DATA_URL || 'https://localtenniscourts.com/table/data?venue=1&venue=5&venue=6' }}
+          DATA_URL: ${{ secrets.DATA_URL }}
           CACHE_STATE_PATH: cache/state.json
           LOG_LEVEL: INFO
 

@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
-import os
-import re
 import json
 import logging
 import os
 import re
 import sys
-from email.mime.text import MIMEText
 from typing import Any
 
-import requests
 import pandas as pd
+import requests
 from redmail import gmail
 
 # ---- config from env ----
@@ -19,7 +16,7 @@ CACHE_STATE_PATH = os.getenv("CACHE_STATE_PATH", "cache/state.json")
 
 EMAIL_FROM = os.getenv("EMAIL_FROM", "")  # authorized Gmail address
 EMAIL_TO = os.getenv("EMAIL_TO", "")
-APP_PASSWORD = os.getenv("APP_PASSWORD", "")                # Gmail app password
+APP_PASSWORD = os.getenv("APP_PASSWORD", "")  # Gmail app password
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
@@ -32,6 +29,7 @@ BOOKING_DATE_RE = re.compile(r"/(\d{4}-\d{2}-\d{2})/")
 if EMAIL_FROM and APP_PASSWORD:
     gmail.username = EMAIL_FROM
     gmail.password = APP_PASSWORD
+
 
 # ---------- helpers ----------
 def fetch_json(url: str) -> dict[str, Any]:
@@ -125,33 +123,34 @@ def diff_tables(curr: list[dict[str, Any]], prev: list[dict[str, Any]]) -> list[
 
     return changed_keys
 
+
 # ---------- Gmail SMTP via Red-Mail ----------
 def send_email(subject: str, changed_rows: List[Dict[str, Any]]) -> None:
     """
     Send an HTML email with a table of changed tennis court availability.
-    
+
     Red-Mail automatically renders pandas DataFrames as styled HTML tables.
-    
+
     Args:
         subject: Email subject line
         changed_rows: List of row dictionaries that have changed
     """
     if not EMAIL_FROM or not EMAIL_TO:
         raise RuntimeError("EMAIL_FROM/EMAIL_TO not configured")
-    
+
     if not APP_PASSWORD:
         raise RuntimeError("APP_PASSWORD not configured")
-    
+
     if not changed_rows:
         raise ValueError("changed_rows cannot be empty")
-    
+
     # Convert list of dicts to pandas DataFrame
     df = pd.DataFrame(changed_rows)
-    
+
     # Select and reorder columns for display
     display_columns = ["Date", "Time", "Venue", "Spaces", "Venue Size", "URL"]
     df_display = df[display_columns]
-    
+
     # Simple HTML with insertion point for table - Red-Mail handles styling
     gmail.send(
         sender=EMAIL_FROM,
@@ -162,12 +161,8 @@ def send_email(subject: str, changed_rows: List[Dict[str, Any]]) -> None:
         <p>{{ num_changes }} availability change(s) detected:</p>
         {{ my_table }}
         """,
-        body_tables={
-            "my_table": df_display
-        },
-        body_params={
-            "num_changes": len(changed_rows)
-        }
+        body_tables={"my_table": df_display},
+        body_params={"num_changes": len(changed_rows)},
     )
     logging.info("Email sent successfully via SMTP")
 
@@ -193,7 +188,7 @@ def main() -> int:
         # Build list of changed rows for the email
         curr_map = {key_of(r): r for r in curr_rows}
         changed_rows = [curr_map[k] for k in changed_keys if k in curr_map]
-        
+
         if changed_rows:  # Only send email if we have actual rows to display
             logging.info("Sending email with %d changed keys …", len(changed_keys))
             send_email("Tennis availability changes", changed_rows)

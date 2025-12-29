@@ -24,6 +24,99 @@ logging.basicConfig(level=getattr(logging, LOG_LEVEL, logging.INFO),
 
 BOOKING_DATE_RE = re.compile(r"/(\d{4}-\d{2}-\d{2})/")
 
+# Email HTML template (uses Jinja2 syntax, processed by Red-Mail)
+EMAIL_HTML_TEMPLATE = """
+<html>
+<head>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h2 {
+            color: #2c3e50;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            box-shadow: 0 2px 3px rgba(0,0,0,0.1);
+        }
+        th {
+            background-color: #3498db;
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-weight: bold;
+        }
+        td {
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
+        }
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+        .venue-name {
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        .booking-link {
+            display: inline-block;
+            padding: 5px 10px;
+            background-color: #27ae60;
+            color: white;
+            text-decoration: none;
+            border-radius: 3px;
+        }
+        .booking-link:hover {
+            background-color: #229954;
+        }
+    </style>
+</head>
+<body>
+    <h2>Tennis Court Availability Changes</h2>
+    <p>{{ num_changes }} availability change(s) detected:</p>
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Time</th>
+                <th>Venue</th>
+                <th>Spaces</th>
+                <th>Size</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+            <tr>
+                <td>{{ row.Date }}</td>
+                <td>{{ row.Time }}</td>
+                <td class="venue-name">{{ row.Venue }}</td>
+                <td>{{ row.Spaces }}</td>
+                <td>{{ row["Venue Size"] }}</td>
+                <td>
+                    {% if row.URL %}
+                    <a href="{{ row.URL }}" class="booking-link">Book</a>
+                    {% else %}
+                    -
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>
+"""
+
+# Configure Gmail SMTP client at module level
+if EMAIL_FROM and APP_PASSWORD:
+    gmail.username = EMAIL_FROM
+    gmail.password = APP_PASSWORD
+
 # ---------- helpers ----------
 def fetch_json(url: str) -> Dict[str, Any]:
     r = requests.get(url, timeout=15)
@@ -109,17 +202,12 @@ def diff_tables(curr: List[Dict[str, Any]], prev: List[Dict[str, Any]]) -> List[
     return changed_keys
 
 # ---------- Gmail SMTP via Red-Mail ----------
-def configure_gmail() -> None:
-    """Configure Red-Mail's Gmail client with SMTP credentials."""
-    if not EMAIL_FROM or not APP_PASSWORD:
-        raise RuntimeError("EMAIL_FROM and APP_PASSWORD must be configured")
-    
-    gmail.username = EMAIL_FROM
-    gmail.password = APP_PASSWORD
-
 def send_email(subject: str, changed_rows: List[Dict[str, Any]]) -> None:
     """
     Send an HTML email with a nicely formatted table of changed tennis court availability.
+    
+    Red-Mail automatically processes the HTML template using Jinja2, allowing use of
+    template variables ({{ }}) and control structures ({% %}).
     
     Args:
         subject: Email subject line
@@ -128,99 +216,15 @@ def send_email(subject: str, changed_rows: List[Dict[str, Any]]) -> None:
     if not EMAIL_FROM or not EMAIL_TO:
         raise RuntimeError("EMAIL_FROM/EMAIL_TO not configured")
     
-    configure_gmail()
+    if not APP_PASSWORD:
+        raise RuntimeError("APP_PASSWORD not configured")
     
-    # Create an HTML table from changed rows
+    # Send email with Jinja2-templated HTML (processed by Red-Mail)
     gmail.send(
         sender=EMAIL_FROM,
         receivers=[EMAIL_TO],
         subject=subject,
-        html="""
-        <html>
-        <head>
-            <style>
-                body {
-                    font-family: Arial, sans-serif;
-                    max-width: 800px;
-                    margin: 0 auto;
-                    padding: 20px;
-                }
-                h2 {
-                    color: #2c3e50;
-                }
-                table {
-                    width: 100%;
-                    border-collapse: collapse;
-                    margin-top: 20px;
-                    box-shadow: 0 2px 3px rgba(0,0,0,0.1);
-                }
-                th {
-                    background-color: #3498db;
-                    color: white;
-                    padding: 12px;
-                    text-align: left;
-                    font-weight: bold;
-                }
-                td {
-                    padding: 10px;
-                    border-bottom: 1px solid #ddd;
-                }
-                tr:hover {
-                    background-color: #f5f5f5;
-                }
-                .venue-name {
-                    font-weight: bold;
-                    color: #2c3e50;
-                }
-                .booking-link {
-                    display: inline-block;
-                    padding: 5px 10px;
-                    background-color: #27ae60;
-                    color: white;
-                    text-decoration: none;
-                    border-radius: 3px;
-                }
-                .booking-link:hover {
-                    background-color: #229954;
-                }
-            </style>
-        </head>
-        <body>
-            <h2>Tennis Court Availability Changes</h2>
-            <p>{{ num_changes }} availability change(s) detected:</p>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Time</th>
-                        <th>Venue</th>
-                        <th>Spaces</th>
-                        <th>Size</th>
-                        <th>Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for row in rows %}
-                    <tr>
-                        <td>{{ row.Date }}</td>
-                        <td>{{ row.Time }}</td>
-                        <td class="venue-name">{{ row.Venue }}</td>
-                        <td>{{ row.Spaces }}</td>
-                        <td>{{ row["Venue Size"] }}</td>
-                        <td>
-                            {% if row.URL %}
-                            <a href="{{ row.URL }}" class="booking-link">Book</a>
-                            {% else %}
-                            -
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </body>
-        </html>
-        """,
+        html=EMAIL_HTML_TEMPLATE,
         body_params={
             "rows": changed_rows,
             "num_changes": len(changed_rows)

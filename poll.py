@@ -55,9 +55,10 @@ def tabularise(payload: dict[str, Any]) -> pd.DataFrame:
             columns=["Time", "Date", "Spaces", "Venue", "Venue Size", "Age", "Scraped At", "URL"]
         )
 
-    # Step 2: Identify day columns and unpivot
-    day_cols = [col for col in rows_df.columns if str(col).startswith("day")]
-    id_cols = [col for col in rows_df.columns if not str(col).startswith("day")]
+    # Step 2: Identify columns to keep (id_cols) and columns to unpivot (day_cols)
+    # According to Power Query: keep hour and fromTime, unpivot all other columns
+    id_cols = ["hour", "fromTime"]
+    day_cols = [col for col in rows_df.columns if col not in id_cols]
 
     # Step 3: Unpivot (melt) the day columns
     unpivoted = rows_df.melt(
@@ -108,7 +109,7 @@ def tabularise(payload: dict[str, Any]) -> pd.DataFrame:
     result["fromTime"] = pd.to_datetime(result["fromTime"], format="%H:%M", errors="coerce").dt.time
     result["day"] = pd.to_datetime(result["day"], errors="coerce").dt.date
     result["Value.total_spaces"] = result["Value.total_spaces"].astype("int64")
-    result["venue_id"] = result["venue_id"].astype("int64")
+    # Note: venue_id is not converted here since it will be dropped in Step 10
     result["Value.spaces.total_spaces"] = result["Value.spaces.total_spaces"].astype("int64")
     result["scraped_at"] = pd.to_datetime(result["scraped_at"], errors="coerce")
 

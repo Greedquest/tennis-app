@@ -34,6 +34,8 @@ jobs:
 
       - name: Setup Python
         uses: actions/setup-python@v6.1.0
+        with:
+          cache: 'pip' # caching pip dependencies
 
 
       - name: Install deps
@@ -55,7 +57,7 @@ jobs:
           EMAIL_TO:   ${{ secrets.EMAIL_TO }}
           APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
         run: |
-          python poll.py
+          python -m poll
 
       # Save a new cache (immutable) so the next run can restore the latest via prefix
       - name: Save cached state for next run

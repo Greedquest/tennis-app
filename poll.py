@@ -73,7 +73,7 @@ def tabularise(payload: dict[str, Any]) -> pd.DataFrame:
         )
 
     # Step 5: Expand the Value column (dict with day, total_spaces, spaces)
-    value_expanded = pd.json_normalize(unpivoted["Value"])  # type: ignore[arg-type]
+    value_expanded = pd.json_normalize(unpivoted["Value"])
     result = pd.concat(
         [unpivoted.drop(columns=["Value"]).reset_index(drop=True), value_expanded], axis=1
     )
@@ -82,7 +82,7 @@ def tabularise(payload: dict[str, Any]) -> pd.DataFrame:
     result = result.explode("spaces").reset_index(drop=True)
 
     # Step 7: Expand spaces record
-    spaces_expanded = pd.json_normalize(result["spaces"])  # type: ignore[arg-type]
+    spaces_expanded = pd.json_normalize(result["spaces"])
     result = pd.concat(
         [result.drop(columns=["spaces"]).reset_index(drop=True), spaces_expanded], axis=1
     )

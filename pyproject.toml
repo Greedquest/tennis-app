@@ -21,7 +21,6 @@ select = [
 ]
 ignore = [
     "E501",   # line too long (handled by black)
-    "S106",   # Hardcoded password (false positives with URLs)
 ]
 
 [tool.ruff.lint.per-file-ignores]

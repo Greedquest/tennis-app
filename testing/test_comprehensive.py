@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Comprehensive test for tabularise function fixes."""
+
 import json
 import os
 import sys

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Test script to reproduce issues with tabularise function."""
+
 import json
 import os
 import sys

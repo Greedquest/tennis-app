@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Integration test simulating the full workflow."""
+
 import json
 import os
 import sys
@@ -41,9 +42,9 @@ def test_full_workflow():
     print(f"   ✓ All required columns present: {', '.join(required_columns)}")
 
     # Dates are properly parsed
-    assert df["Date"].dtype == "object" or df["Date"].dtype.name.startswith(
-        "datetime"
-    ), f"Date column has unexpected type: {df['Date'].dtype}"
+    assert df["Date"].dtype == "object" or df["Date"].dtype.name.startswith("datetime"), (
+        f"Date column has unexpected type: {df['Date'].dtype}"
+    )
     # Check that dates are not NaT
     date_sample = str(df.iloc[0]["Date"])
     assert "NaT" not in date_sample, f"Dates not parsed correctly: {date_sample}"

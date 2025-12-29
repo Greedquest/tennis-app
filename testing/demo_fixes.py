@@ -6,6 +6,7 @@ This script shows what was fixed:
 1. Date parsing now works correctly by extracting year from booking_url
 2. Rows with empty spaces arrays are filtered out (no more NaN values)
 """
+
 import json
 import os
 import sys

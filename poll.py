@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
-import json
 import logging
 import os
-import re
 import sys
 from typing import Any
 
@@ -23,8 +21,6 @@ logging.basicConfig(
     level=getattr(logging, LOG_LEVEL, logging.INFO), format="%(asctime)s %(levelname)s %(message)s"
 )
 
-BOOKING_DATE_RE = re.compile(r"/(\d{4}-\d{2}-\d{2})/")
-
 # Configure Gmail SMTP client at module level
 if EMAIL_FROM and APP_PASSWORD:
     gmail.username = EMAIL_FROM
@@ -38,86 +34,174 @@ def fetch_json(url: str) -> dict[str, Any]:
     return r.json()
 
 
-def extract_iso_date_from_url(url: str) -> str:
-    m = BOOKING_DATE_RE.search(url or "")
-    return m.group(1) if m else ""
-
-
-def tabularise(payload: dict[str, Any]) -> list[dict[str, Any]]:
+def tabularise(payload: dict[str, Any]) -> pd.DataFrame:
     """
-    Mirror your Power Query:
-      - iterate rows
-      - expand each 'dayXXXX' record
-      - expand list 'spaces' -> one output row per item
-      - produce tidy dict with keys: Date, Time, Venue, Spaces, Venue Size, Age, Scraped At, URL, venue_id
+    Mirror Power Query transformation:
+      1. Convert rows to table
+      2. Unpivot other columns (keep hour, fromTime; unpivot day* columns)
+      3. Expand Value record (day, total_spaces, spaces)
+      4. Expand spaces list
+      5. Expand spaces record fields
+      6. Change column types
+      7. Rename and remove columns
+
+    Returns DataFrame with columns: Time, Date, Spaces, Venue, Venue Size, Age, Scraped At, URL
     """
-    out: list[dict[str, Any]] = []
-    for row in payload.get("rows", []):
-        from_time = row.get("fromTime")
-        for k, v in row.items():
-            if not str(k).startswith("day"):
-                continue
-            day_rec = v or {}
-            spaces_total = int(day_rec.get("total_spaces", 0))
-            for item in day_rec.get("spaces") or []:
-                venue_id = int(item.get("venue_id", -1))
-                url = item.get("booking_url", "")
-                date_iso = extract_iso_date_from_url(url)
-                out.append(
-                    {
-                        "Date": date_iso,
-                        "Time": from_time,
-                        "Venue": item.get("name", ""),
-                        "Spaces": spaces_total,
-                        "Venue Size": int(item.get("total_spaces", 0)),
-                        "Age": item.get("freshness", ""),
-                        "Scraped At": item.get("scraped_at", ""),
-                        "URL": url,
-                        "venue_id": venue_id,
-                    }
-                )
-    return out
+    # Step 1: Convert rows to DataFrame
+    rows_df = pd.DataFrame(payload.get("rows", []))
+
+    if rows_df.empty:
+        return pd.DataFrame(
+            columns=["Time", "Date", "Spaces", "Venue", "Venue Size", "Age", "Scraped At", "URL"]
+        )
+
+    # Step 2: Identify day columns and unpivot
+    day_cols = [col for col in rows_df.columns if str(col).startswith("day")]
+    id_cols = [col for col in rows_df.columns if not str(col).startswith("day")]
+
+    # Step 3: Unpivot (melt) the day columns
+    unpivoted = rows_df.melt(
+        id_vars=id_cols, value_vars=day_cols, var_name="Attribute", value_name="Value"
+    )
+
+    # Step 4: Drop rows where Value is None
+    unpivoted = unpivoted.dropna(subset=["Value"])
+
+    if unpivoted.empty:
+        return pd.DataFrame(
+            columns=["Time", "Date", "Spaces", "Venue", "Venue Size", "Age", "Scraped At", "URL"]
+        )
+
+    # Step 5: Expand the Value column (dict with day, total_spaces, spaces)
+    value_expanded = pd.json_normalize(unpivoted["Value"])  # type: ignore[arg-type]
+    result = pd.concat(
+        [unpivoted.drop(columns=["Value"]).reset_index(drop=True), value_expanded], axis=1
+    )
+
+    # Step 6: Expand the spaces list column
+    result = result.explode("spaces").reset_index(drop=True)
+
+    # Step 7: Expand spaces record
+    spaces_expanded = pd.json_normalize(result["spaces"])  # type: ignore[arg-type]
+    result = pd.concat(
+        [result.drop(columns=["spaces"]).reset_index(drop=True), spaces_expanded], axis=1
+    )
+
+    # Handle duplicate 'total_spaces' columns by renaming them
+    # First total_spaces is from Value (day total), second is from spaces (venue total)
+    cols = result.columns.tolist()
+    new_cols = []
+    total_spaces_count = 0
+    for col in cols:
+        if col == "total_spaces":
+            if total_spaces_count == 0:
+                new_cols.append("Value.total_spaces")
+            else:
+                new_cols.append("Value.spaces.total_spaces")
+            total_spaces_count += 1
+        else:
+            new_cols.append(col)
+    result.columns = new_cols
+
+    # Step 8: Apply type conversions (matching Power Query)
+    result["hour"] = result["hour"].astype("int64")
+    result["fromTime"] = pd.to_datetime(result["fromTime"], format="%H:%M").dt.time
+    result["day"] = pd.to_datetime(result["day"]).dt.date
+    result["Value.total_spaces"] = result["Value.total_spaces"].astype("int64")
+    result["venue_id"] = result["venue_id"].astype("int64")
+    result["Value.spaces.total_spaces"] = result["Value.spaces.total_spaces"].astype("int64")
+    result["scraped_at"] = pd.to_datetime(result["scraped_at"])
+
+    # Step 9: Rename columns (first rename)
+    result = result.rename(
+        columns={"fromTime": "Time", "day": "Date", "Value.total_spaces": "Spaces"}
+    )
+
+    # Step 10: Remove columns (venue_id, hour, Attribute)
+    result = result.drop(columns=["venue_id", "hour", "Attribute"])
+
+    # Step 11: Rename columns (second rename)
+    result = result.rename(
+        columns={
+            "name": "Venue",
+            "Value.spaces.total_spaces": "Venue Size",
+            "freshness": "Age",
+            "scraped_at": "Scraped At",
+            "booking_url": "URL",
+        }
+    )
+
+    # Reorder columns to match Power Query output
+    final_columns = ["Time", "Date", "Spaces", "Venue", "Venue Size", "Age", "Scraped At", "URL"]
+    return result[final_columns]
 
 
-def key_of(r: dict[str, Any]) -> str:
-    return f"{r['Date']}|{r['Time']}|{r['venue_id']}"
+def key_of(row: pd.Series) -> str:
+    """Generate a unique key for a DataFrame row based on Date, Time, and Venue."""
+    # Convert time object to string format for consistent key generation
+    time_str = str(row["Time"]) if pd.notna(row["Time"]) else ""
+    date_str = str(row["Date"]) if pd.notna(row["Date"]) else ""
+    venue_str = str(row["Venue"]) if pd.notna(row["Venue"]) else ""
+    return f"{date_str}|{time_str}|{venue_str}"
 
 
-def load_prev_rows(path: str) -> list[dict[str, Any]]:
+def load_prev_rows(path: str) -> pd.DataFrame:
+    """Load previously cached DataFrame from JSON file."""
     try:
         with open(path, encoding="utf-8") as f:
-            return json.load(f)
+            df = pd.read_json(f, orient="records")
+        # Convert columns to appropriate types
+        if not df.empty:
+            if "Time" in df.columns:
+                df["Time"] = pd.to_datetime(df["Time"], format="%H:%M:%S").dt.time
+            if "Date" in df.columns:
+                df["Date"] = pd.to_datetime(df["Date"]).dt.date
+            if "Scraped At" in df.columns:
+                df["Scraped At"] = pd.to_datetime(df["Scraped At"])
+        return df
     except FileNotFoundError:
         logging.info("No cached state found; starting fresh.")
-        return []
+        return pd.DataFrame(
+            columns=["Time", "Date", "Spaces", "Venue", "Venue Size", "Age", "Scraped At", "URL"]
+        )
 
 
-def save_rows(path: str, rows: list[dict[str, Any]]) -> None:
+def save_rows(path: str, df: pd.DataFrame) -> None:
+    """Save DataFrame to JSON file."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(rows, f, indent=2, ensure_ascii=False)
+    # Convert to records for JSON serialization
+    df.to_json(tmp, orient="records", date_format="iso", indent=2)
     os.replace(tmp, path)
 
 
-def diff_tables(curr: list[dict[str, Any]], prev: list[dict[str, Any]]) -> list[str]:
+def diff_tables(curr: pd.DataFrame, prev: pd.DataFrame) -> list[str]:
     """
-    Compare two tabular lists and return keys whose rows changed.
-    'Changed' means any field difference; you can tighten to 'Spaces' only by altering the compare.
+    Compare two DataFrames and return keys of rows that changed.
+    'Changed' means any field difference or added/removed rows.
     """
-    prev_map = {key_of(r): r for r in prev}
-    curr_map = {key_of(r): r for r in curr}
+    if prev.empty:
+        # All current rows are new
+        return curr.apply(key_of, axis=1).tolist() if not curr.empty else []
+
+    if curr.empty:
+        # All previous rows were removed
+        return prev.apply(key_of, axis=1).tolist()
+
+    # Create dictionaries keyed by row key
+    prev_map = {key_of(row): row.to_dict() for _, row in prev.iterrows()}
+    curr_map = {key_of(row): row.to_dict() for _, row in curr.iterrows()}
 
     changed_keys: list[str] = []
 
-    # Union of keys: detect adds, updates, removals (if you want removals, include here)
+    # Union of keys: detect adds, updates, removals
     all_keys = set(prev_map.keys()) | set(curr_map.keys())
     for k in sorted(all_keys):
         a, b = prev_map.get(k), curr_map.get(k)
         if a is None or b is None:
             changed_keys.append(k)  # added or removed
         else:
-            # compare selected fields; here full dict equality
+            # Compare row values
             if a != b:
                 changed_keys.append(k)
 
@@ -125,7 +209,7 @@ def diff_tables(curr: list[dict[str, Any]], prev: list[dict[str, Any]]) -> list[
 
 
 # ---------- Gmail SMTP via Red-Mail ----------
-def send_email(subject: str, changed_rows: list[dict[str, Any]]) -> None:
+def send_email(subject: str, changed_rows: pd.DataFrame) -> None:
     """
     Send an HTML email with a table of changed tennis court availability.
 
@@ -133,7 +217,7 @@ def send_email(subject: str, changed_rows: list[dict[str, Any]]) -> None:
 
     Args:
         subject: Email subject line
-        changed_rows: List of row dictionaries that have changed
+        changed_rows: DataFrame of rows that have changed
     """
     if not EMAIL_FROM or not EMAIL_TO:
         raise RuntimeError("EMAIL_FROM/EMAIL_TO not configured")
@@ -141,15 +225,12 @@ def send_email(subject: str, changed_rows: list[dict[str, Any]]) -> None:
     if not APP_PASSWORD:
         raise RuntimeError("APP_PASSWORD not configured")
 
-    if not changed_rows:
+    if changed_rows.empty:
         raise ValueError("changed_rows cannot be empty")
-
-    # Convert list of dicts to pandas DataFrame
-    df = pd.DataFrame(changed_rows)
 
     # Select and reorder columns for display
     display_columns = ["Date", "Time", "Venue", "Spaces", "Venue Size", "URL"]
-    df_display = df[display_columns]
+    df_display = changed_rows[display_columns]
 
     # Simple HTML with insertion point for table - Red-Mail handles styling
     gmail.send(
@@ -176,29 +257,30 @@ def main() -> int:
     payload = fetch_json(DATA_URL)
 
     logging.info("Tabularising current payload …")
-    curr_rows = tabularise(payload)
+    curr_df = tabularise(payload)
 
     logging.info("Loading previous rows from cache …")
-    prev_rows = load_prev_rows(CACHE_STATE_PATH)
+    prev_df = load_prev_rows(CACHE_STATE_PATH)
 
     logging.info("Computing changes …")
-    changed_keys = diff_tables(curr_rows, prev_rows)
+    changed_keys = diff_tables(curr_df, prev_df)
 
     if changed_keys:
-        # Build list of changed rows for the email
-        curr_map = {key_of(r): r for r in curr_rows}
-        changed_rows = [curr_map[k] for k in changed_keys if k in curr_map]
+        # Build DataFrame of changed rows for the email
+        curr_map = {key_of(row): idx for idx, row in curr_df.iterrows()}
+        changed_indices = [curr_map[k] for k in changed_keys if k in curr_map]
+        changed_df = curr_df.loc[changed_indices]
 
-        if changed_rows:  # Only send email if we have actual rows to display
+        if not changed_df.empty:  # Only send email if we have actual rows to display
             logging.info("Sending email with %d changed keys …", len(changed_keys))
-            send_email("Tennis availability changes", changed_rows)
+            send_email("Tennis availability changes", changed_df)
         else:
             logging.warning("Changed keys found but no matching rows to display")
     else:
         logging.info("No changes detected; no email.")
 
     logging.info("Saving current rows back to cache …")
-    save_rows(CACHE_STATE_PATH, curr_rows)
+    save_rows(CACHE_STATE_PATH, curr_df)
     return 0
 
 

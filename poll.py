@@ -1,50 +1,49 @@
-
 #!/usr/bin/env python3
+import json
+import logging
 import os
 import re
-import json
-import base64
-import logging
 import sys
-from typing import Any, Dict, List
+from typing import Any
 
+import pandas as pd
 import requests
-from email.mime.text import MIMEText
-
-# Google client libs
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
-from google.auth.transport.requests import Request
+from redmail import gmail
 
 # ---- config from env ----
 DATA_URL = os.getenv("DATA_URL")
 CACHE_STATE_PATH = os.getenv("CACHE_STATE_PATH", "cache/state.json")
 
-EMAIL_FROM = os.getenv("EMAIL_FROM", "")                    # authorized Gmail address
+EMAIL_FROM = os.getenv("EMAIL_FROM", "")  # authorized Gmail address
 EMAIL_TO = os.getenv("EMAIL_TO", "")
-
-ACCESS_TOKEN  = os.getenv("ACCESS_TOKEN", "")               # optional (short-lived)
-REFRESH_TOKEN = os.getenv("REFRESH_TOKEN", "")              # recommended
-CLIENT_ID     = os.getenv("CLIENT_ID", "")
-CLIENT_SECRET = os.getenv("CLIENT_SECRET", "")
+APP_PASSWORD = os.getenv("APP_PASSWORD", "")  # Gmail app password
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
-logging.basicConfig(level=getattr(logging, LOG_LEVEL, logging.INFO),
-                    format="%(asctime)s %(levelname)s %(message)s")
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.INFO), format="%(asctime)s %(levelname)s %(message)s"
+)
 
 BOOKING_DATE_RE = re.compile(r"/(\d{4}-\d{2}-\d{2})/")
 
+# Configure Gmail SMTP client at module level
+if EMAIL_FROM and APP_PASSWORD:
+    gmail.username = EMAIL_FROM
+    gmail.password = APP_PASSWORD
+
+
 # ---------- helpers ----------
-def fetch_json(url: str) -> Dict[str, Any]:
+def fetch_json(url: str) -> dict[str, Any]:
     r = requests.get(url, timeout=15)
     r.raise_for_status()
     return r.json()
+
 
 def extract_iso_date_from_url(url: str) -> str:
     m = BOOKING_DATE_RE.search(url or "")
     return m.group(1) if m else ""
 
-def tabularise(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+
+def tabularise(payload: dict[str, Any]) -> list[dict[str, Any]]:
     """
     Mirror your Power Query:
       - iterate rows
@@ -52,7 +51,7 @@ def tabularise(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
       - expand list 'spaces' -> one output row per item
       - produce tidy dict with keys: Date, Time, Venue, Spaces, Venue Size, Age, Scraped At, URL, venue_id
     """
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for row in payload.get("rows", []):
         from_time = row.get("fromTime")
         for k, v in row.items():
@@ -60,42 +59,48 @@ def tabularise(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
                 continue
             day_rec = v or {}
             spaces_total = int(day_rec.get("total_spaces", 0))
-            for item in (day_rec.get("spaces") or []):
+            for item in day_rec.get("spaces") or []:
                 venue_id = int(item.get("venue_id", -1))
                 url = item.get("booking_url", "")
                 date_iso = extract_iso_date_from_url(url)
-                out.append({
-                    "Date": date_iso,
-                    "Time": from_time,
-                    "Venue": item.get("name", ""),
-                    "Spaces": spaces_total,
-                    "Venue Size": int(item.get("total_spaces", 0)),
-                    "Age": item.get("freshness", ""),
-                    "Scraped At": item.get("scraped_at", ""),
-                    "URL": url,
-                    "venue_id": venue_id,
-                })
+                out.append(
+                    {
+                        "Date": date_iso,
+                        "Time": from_time,
+                        "Venue": item.get("name", ""),
+                        "Spaces": spaces_total,
+                        "Venue Size": int(item.get("total_spaces", 0)),
+                        "Age": item.get("freshness", ""),
+                        "Scraped At": item.get("scraped_at", ""),
+                        "URL": url,
+                        "venue_id": venue_id,
+                    }
+                )
     return out
 
-def key_of(r: Dict[str, Any]) -> str:
+
+def key_of(r: dict[str, Any]) -> str:
     return f"{r['Date']}|{r['Time']}|{r['venue_id']}"
 
-def load_prev_rows(path: str) -> List[Dict[str, Any]]:
+
+def load_prev_rows(path: str) -> list[dict[str, Any]]:
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
     except FileNotFoundError:
         logging.info("No cached state found; starting fresh.")
         return []
 
-def save_rows(path: str, rows: List[Dict[str, Any]]) -> None:
+
+def save_rows(path: str, rows: list[dict[str, Any]]) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(rows, f, indent=2, ensure_ascii=False)
     os.replace(tmp, path)
 
-def diff_tables(curr: List[Dict[str, Any]], prev: List[Dict[str, Any]]) -> List[str]:
+
+def diff_tables(curr: list[dict[str, Any]], prev: list[dict[str, Any]]) -> list[str]:
     """
     Compare two tabular lists and return keys whose rows changed.
     'Changed' means any field difference; you can tighten to 'Spaces' only by altering the compare.
@@ -103,7 +108,7 @@ def diff_tables(curr: List[Dict[str, Any]], prev: List[Dict[str, Any]]) -> List[
     prev_map = {key_of(r): r for r in prev}
     curr_map = {key_of(r): r for r in curr}
 
-    changed_keys: List[str] = []
+    changed_keys: list[str] = []
 
     # Union of keys: detect adds, updates, removals (if you want removals, include here)
     all_keys = set(prev_map.keys()) | set(curr_map.keys())
@@ -118,39 +123,55 @@ def diff_tables(curr: List[Dict[str, Any]], prev: List[Dict[str, Any]]) -> List[
 
     return changed_keys
 
-# ---------- Gmail via Google client libs ----------
-def gmail_credentials() -> Credentials:
-    creds = Credentials(
-        token=ACCESS_TOKEN or None,
-        refresh_token=REFRESH_TOKEN or None,
-        token_uri="https://oauth2.googleapis.com/token",
-        client_id=CLIENT_ID or None,
-        client_secret=CLIENT_SECRET or None,
-        scopes=["https://www.googleapis.com/auth/gmail.send"],  # minimal
-    )
-    if creds and creds.expired and creds.refresh_token:
-        logging.info("Access token expired; refreshing via Google OAuth2.")
-        creds.refresh(Request())
-    return creds
 
-def send_email(subject: str, body: str) -> str:
+# ---------- Gmail SMTP via Red-Mail ----------
+def send_email(subject: str, changed_rows: list[dict[str, Any]]) -> None:
+    """
+    Send an HTML email with a table of changed tennis court availability.
+
+    Red-Mail automatically renders pandas DataFrames as styled HTML tables.
+
+    Args:
+        subject: Email subject line
+        changed_rows: List of row dictionaries that have changed
+    """
     if not EMAIL_FROM or not EMAIL_TO:
         raise RuntimeError("EMAIL_FROM/EMAIL_TO not configured")
 
-    creds = gmail_credentials()
-    service = build("gmail", "v1", credentials=creds, cache_discovery=False)
+    if not APP_PASSWORD:
+        raise RuntimeError("APP_PASSWORD not configured")
 
-    msg = MIMEText(body, _charset="utf-8")
-    msg["to"] = EMAIL_TO
-    msg["from"] = EMAIL_FROM
-    msg["subject"] = subject
+    if not changed_rows:
+        raise ValueError("changed_rows cannot be empty")
 
-    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("ascii")
-    sent = service.users().messages().send(userId="me", body={"raw": raw}).execute()  # Gmail users.messages.send
-    return sent.get("id", "")
+    # Convert list of dicts to pandas DataFrame
+    df = pd.DataFrame(changed_rows)
+
+    # Select and reorder columns for display
+    display_columns = ["Date", "Time", "Venue", "Spaces", "Venue Size", "URL"]
+    df_display = df[display_columns]
+
+    # Simple HTML with insertion point for table - Red-Mail handles styling
+    gmail.send(
+        sender=EMAIL_FROM,
+        receivers=[EMAIL_TO],
+        subject=subject,
+        html="""
+        <h2>Tennis Court Availability Changes</h2>
+        <p>{{ num_changes }} availability change(s) detected:</p>
+        {{ my_table }}
+        """,
+        body_tables={"my_table": df_display},
+        body_params={"num_changes": len(changed_rows)},
+    )
+    logging.info("Email sent successfully via SMTP")
+
 
 # ---------- main ----------
 def main() -> int:
+    if not DATA_URL:
+        raise RuntimeError("DATA_URL environment variable not set")
+
     logging.info("Fetching JSON …")
     payload = fetch_json(DATA_URL)
 
@@ -164,16 +185,22 @@ def main() -> int:
     changed_keys = diff_tables(curr_rows, prev_rows)
 
     if changed_keys:
-        body = "\n".join(changed_keys)
-        logging.info("Sending email with %d changed keys …", len(changed_keys))
-        msg_id = send_email("Tennis availability changes", body)
-        logging.info("Email sent. Message ID: %s", msg_id)
+        # Build list of changed rows for the email
+        curr_map = {key_of(r): r for r in curr_rows}
+        changed_rows = [curr_map[k] for k in changed_keys if k in curr_map]
+
+        if changed_rows:  # Only send email if we have actual rows to display
+            logging.info("Sending email with %d changed keys …", len(changed_keys))
+            send_email("Tennis availability changes", changed_rows)
+        else:
+            logging.warning("Changed keys found but no matching rows to display")
     else:
         logging.info("No changes detected; no email.")
 
     logging.info("Saving current rows back to cache …")
     save_rows(CACHE_STATE_PATH, curr_rows)
     return 0
+
 
 if __name__ == "__main__":
     sys.exit(main())

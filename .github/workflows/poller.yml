@@ -3,7 +3,7 @@ name: Poller
 
 on:
   schedule:
-    - cron: "*/30 * * * *"     # minimum interval; runs in UTC
+    - cron: "2 */3 * * *"     # minimum interval; runs in UTC
   workflow_dispatch:
 
 # prevent overlap

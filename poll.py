@@ -105,12 +105,12 @@ def tabularise(payload: dict[str, Any]) -> pd.DataFrame:
 
     # Step 8: Apply type conversions (matching Power Query)
     result["hour"] = result["hour"].astype("int64")
-    result["fromTime"] = pd.to_datetime(result["fromTime"], format="%H:%M").dt.time
-    result["day"] = pd.to_datetime(result["day"]).dt.date
+    result["fromTime"] = pd.to_datetime(result["fromTime"], format="%H:%M", errors="coerce").dt.time
+    result["day"] = pd.to_datetime(result["day"], errors="coerce").dt.date
     result["Value.total_spaces"] = result["Value.total_spaces"].astype("int64")
     result["venue_id"] = result["venue_id"].astype("int64")
     result["Value.spaces.total_spaces"] = result["Value.spaces.total_spaces"].astype("int64")
-    result["scraped_at"] = pd.to_datetime(result["scraped_at"])
+    result["scraped_at"] = pd.to_datetime(result["scraped_at"], errors="coerce")
 
     # Step 9: Rename columns (first rename)
     result = result.rename(
@@ -150,14 +150,16 @@ def load_prev_rows(path: str) -> pd.DataFrame:
     try:
         with open(path, encoding="utf-8") as f:
             df = pd.read_json(f, orient="records")
-        # Convert columns to appropriate types
+        # Convert columns to appropriate types with error handling
         if not df.empty:
             if "Time" in df.columns:
-                df["Time"] = pd.to_datetime(df["Time"], format="%H:%M:%S").dt.time
+                df["Time"] = pd.to_datetime(
+                    df["Time"], format="%H:%M:%S", errors="coerce"
+                ).dt.time
             if "Date" in df.columns:
-                df["Date"] = pd.to_datetime(df["Date"]).dt.date
+                df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.date
             if "Scraped At" in df.columns:
-                df["Scraped At"] = pd.to_datetime(df["Scraped At"])
+                df["Scraped At"] = pd.to_datetime(df["Scraped At"], errors="coerce")
         return df
     except FileNotFoundError:
         logging.info("No cached state found; starting fresh.")

@@ -22,13 +22,6 @@ repos:
       - id: pyupgrade
         args: [--py312-plus]  # Target Python 3.12+ syntax
 
-  # Black code formatter
-  - repo: https://github.com/psf/black-pre-commit-mirror
-    rev: 25.12.0
-    hooks:
-      - id: black
-        language_version: python3
-
   # Ruff - fast Python linter (replaces flake8, isort, and more)
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.14.10

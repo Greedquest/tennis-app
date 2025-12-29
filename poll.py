@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import logging
 import os
+import re
 import sys
 from typing import Any
 
@@ -79,10 +80,20 @@ def tabularise(payload: dict[str, Any]) -> pd.DataFrame:
         [unpivoted.drop(columns=["Value"]).reset_index(drop=True), value_expanded], axis=1
     )
 
-    # Step 6: Expand the spaces list column
+    # Step 6: Filter out rows with empty spaces arrays to avoid NaN values
+    result = result[result["spaces"].str.len() > 0]
+
+    if result.empty:
+        return pd.DataFrame(
+            columns=["Time", "Date", "Spaces", "Venue", "Venue Size", "Age", "Scraped At", "URL"]
+        )
+
+    result = result.reset_index(drop=True)
+
+    # Step 7: Expand the spaces list column
     result = result.explode("spaces").reset_index(drop=True)
 
-    # Step 7: Expand spaces record
+    # Step 8: Expand spaces record
     spaces_expanded = pd.json_normalize(result["spaces"].tolist())
     result = pd.concat(
         [result.drop(columns=["spaces"]).reset_index(drop=True), spaces_expanded], axis=1
@@ -104,21 +115,31 @@ def tabularise(payload: dict[str, Any]) -> pd.DataFrame:
             new_cols.append(col)
     result.columns = pd.Index(new_cols)
 
-    # Step 8: Apply type conversions (matching Power Query)
-    # Note: hour, venue_id, and Attribute are not converted since they will be dropped in Step 10
+    # Step 9: Apply type conversions (matching Power Query)
+    # Note: hour, venue_id, and Attribute are not converted since they will be dropped in Step 11
     result["fromTime"] = pd.to_datetime(result["fromTime"], format="%H:%M", errors="coerce").dt.time
-    result["day"] = pd.to_datetime(result["day"], errors="coerce").dt.date
+
+    # Parse dates by extracting full date from booking_url
+    # booking_url contains full date like "2026-01-02"
+    def extract_date_from_url(row):
+        booking_url = row.get("booking_url", "")
+        match = re.search(r"/(\d{4}-\d{2}-\d{2})/", booking_url)
+        if match:
+            return pd.to_datetime(match.group(1), errors="coerce")
+        return pd.NaT
+
+    result["day"] = result.apply(extract_date_from_url, axis=1).dt.date
     result["scraped_at"] = pd.to_datetime(result["scraped_at"], errors="coerce")
 
-    # Step 9: Rename columns (first rename)
+    # Step 10: Rename columns (first rename)
     result = result.rename(
         columns={"fromTime": "Time", "day": "Date", "Value.total_spaces": "Spaces"}
     )
 
-    # Step 10: Remove columns (venue_id, hour, Attribute)
+    # Step 11: Remove columns (venue_id, hour, Attribute)
     result = result.drop(columns=["venue_id", "hour", "Attribute"])
 
-    # Step 11: Rename columns (second rename)
+    # Step 12: Rename columns (second rename)
     result = result.rename(
         columns={
             "name": "Venue",

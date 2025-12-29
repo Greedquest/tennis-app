@@ -4,7 +4,7 @@ import logging
 import os
 import re
 import sys
-from typing import Any
+from typing import Any, List, Dict
 
 import pandas as pd
 import requests

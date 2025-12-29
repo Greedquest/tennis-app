@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Comprehensive test for tabularise function fixes."""
 import json
-import sys
 import os
+import sys
 
 # Add parent directory to path to import poll module
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import pandas as pd
 from poll import tabularise
+
 
 def test_empty_spaces():
     """Test that rows with empty spaces arrays are filtered out."""
@@ -64,7 +64,8 @@ def test_date_parsing_with_year():
 def test_no_nan_values():
     """Test that there are no NaN values in the output."""
     print("\nTest 3: No NaN values in output...")
-    with open("/home/runner/work/tennis-app/tennis-app/testing/sample_data.json") as f:
+    sample_data_path = os.path.join(os.path.dirname(__file__), "sample_data.json")
+    with open(sample_data_path) as f:
         payload = json.load(f)
 
     result = tabularise(payload)
@@ -80,7 +81,8 @@ def test_no_nan_values():
 def test_venue_data_present():
     """Test that venue, venue size, and URL are present for all rows."""
     print("\nTest 4: Venue data is present for all rows...")
-    with open("/home/runner/work/tennis-app/tennis-app/testing/sample_data.json") as f:
+    sample_data_path = os.path.join(os.path.dirname(__file__), "sample_data.json")
+    with open(sample_data_path) as f:
         payload = json.load(f)
 
     result = tabularise(payload)
@@ -133,7 +135,7 @@ def test_year_boundary():
     }
     result = tabularise(payload)
     assert result.shape[0] == 2, f"Expected 2 rows, got {result.shape[0]}"
-    
+
     # Check both dates
     dates = sorted([str(d) for d in result["Date"]])
     assert dates[0] == "2025-12-30", f"Expected 2025-12-30, got {dates[0]}"
@@ -161,5 +163,6 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\n✗ Error running tests: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)

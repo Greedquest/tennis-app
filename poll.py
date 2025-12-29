@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import logging
 import os
+import re
 import sys
 from typing import Any
 
@@ -120,8 +121,6 @@ def tabularise(payload: dict[str, Any]) -> pd.DataFrame:
 
     # Parse dates by extracting full date from booking_url
     # booking_url contains full date like "2026-01-02"
-    import re
-
     def extract_date_from_url(row):
         booking_url = row.get("booking_url", "")
         match = re.search(r"/(\d{4}-\d{2}-\d{2})/", booking_url)

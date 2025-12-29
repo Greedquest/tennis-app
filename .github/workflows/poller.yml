@@ -50,14 +50,10 @@ jobs:
           CACHE_STATE_PATH: cache/state.json
           LOG_LEVEL: INFO
 
-          # Gmail
+          # Gmail SMTP
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
           EMAIL_TO:   ${{ secrets.EMAIL_TO }}
-
-          ACCESS_TOKEN:  ${{ secrets.ACCESS_TOKEN }}   # optional
-          REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
-          CLIENT_ID:     ${{ secrets.CLIENT_ID }}
-          CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
+          APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
         run: |
           python poll.py
 

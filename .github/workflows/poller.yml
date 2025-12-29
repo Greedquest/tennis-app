@@ -36,7 +36,7 @@ jobs:
         uses: actions/setup-python@v6.1.0
         with:
           # Used to specify the packages to install with pip after setting up Python. Can be a requirements file or package names.
-          pip-install: requirements.txt
+          pip-install: -r requirements.txt
       
       - name: Verify Installed Dependencies
         run: pip list

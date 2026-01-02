@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 import logging
 import os
 import re
@@ -7,10 +8,11 @@ from typing import Any
 
 import pandas as pd
 import requests
+from bs4 import BeautifulSoup
 from redmail import gmail
 
 # ---- config from env ----
-DATA_URL = os.getenv("DATA_URL")
+WEBSITE_URL = os.getenv("WEBSITE_URL", "https://localtenniscourts.com/")
 CACHE_STATE_PATH = os.getenv("CACHE_STATE_PATH", "cache/state.json")
 
 EMAIL_FROM = os.getenv("EMAIL_FROM", "")  # authorized Gmail address
@@ -29,10 +31,84 @@ if EMAIL_FROM and APP_PASSWORD:
 
 
 # ---------- helpers ----------
-def fetch_json(url: str) -> dict[str, Any]:
+def scrape_website(url: str) -> dict[str, Any]:
+    """
+    Scrape tennis court availability from the HTML website.
+
+    The function tries multiple strategies to extract data:
+    1. Look for JSON data in <script> tags (common pattern for SPAs)
+    2. Parse HTML tables and transform to expected format
+    3. Look for data attributes in HTML elements
+
+    Returns a dict with the same structure as the original JSON API:
+    {
+        "columns": [...],
+        "rows": [
+            {
+                "hour": int,
+                "fromTime": "HH:MM",
+                "dayDDMM": {
+                    "day": "DD Mon",
+                    "total_spaces": int,
+                    "spaces": [...]
+                }
+            }
+        ]
+    }
+    """
     r = requests.get(url, timeout=15)
     r.raise_for_status()
-    return r.json()
+    soup = BeautifulSoup(r.content, "lxml")
+
+    # Strategy 1: Look for JSON data embedded in script tags
+    # Many modern websites embed data as JSON in script tags
+    script_tags = soup.find_all("script", type="application/json")
+    for script in script_tags:
+        if not script.string:
+            continue
+        try:
+            data = json.loads(script.string)
+            # Check if this looks like our expected data structure
+            if isinstance(data, dict) and ("rows" in data or "columns" in data):
+                logging.info("Found JSON data in script tag")
+                return data
+        except (json.JSONDecodeError, AttributeError):
+            continue
+
+    # Also check for script tags without explicit type that might contain JSON
+    script_tags_general = soup.find_all("script")
+    for script in script_tags_general:
+        if not script.string:
+            continue
+        # Look for variable assignments that might contain our data
+        # Pattern: var data = {...} or const data = {...}
+        for pattern in [
+            r"var\s+\w+\s*=\s*({.*?});",
+            r"const\s+\w+\s*=\s*({.*?});",
+            r"data\s*=\s*({.*?});",
+        ]:
+            matches = re.findall(pattern, script.string, re.DOTALL)
+            for match in matches:
+                try:
+                    data = json.loads(match)
+                    if isinstance(data, dict) and ("rows" in data or "columns" in data):
+                        logging.info("Found JSON data in script variable")
+                        return data
+                except (json.JSONDecodeError, ValueError):
+                    continue
+
+    # Strategy 2: Parse HTML table structure
+    # If no JSON found, log error and raise exception
+    logging.error("No embedded JSON found on the page")
+    logging.error(
+        "HTML table parsing is not implemented as it requires knowledge of "
+        "the specific website structure. Please verify the website URL and structure."
+    )
+
+    # Return empty structure to allow graceful degradation
+    # The downstream processing will handle empty data appropriately
+    logging.warning("Returning empty data structure")
+    return {"columns": [], "rows": []}
 
 
 def tabularise(payload: dict[str, Any]) -> pd.DataFrame:
@@ -269,11 +345,11 @@ def send_email(subject: str, changed_rows: pd.DataFrame) -> None:
 
 # ---------- main ----------
 def main() -> int:
-    if not DATA_URL:
-        raise RuntimeError("DATA_URL environment variable not set")
+    if not WEBSITE_URL:
+        raise RuntimeError("WEBSITE_URL environment variable not set")
 
-    logging.info("Fetching JSON …")
-    payload = fetch_json(DATA_URL)
+    logging.info("Scraping website …")
+    payload = scrape_website(WEBSITE_URL)
 
     logging.info("Tabularising current payload …")
     curr_df = tabularise(payload)

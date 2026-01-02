@@ -41,7 +41,7 @@ jobs:
 
       - name: Run poller
         env:
-          DATA_URL: ${{ secrets.DATA_URL }}
+          WEBSITE_URL: https://localtenniscourts.com/
           CACHE_STATE_PATH: cache/state.json
           LOG_LEVEL: INFO
 

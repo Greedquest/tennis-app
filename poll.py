@@ -64,6 +64,8 @@ def scrape_website(url: str) -> dict[str, Any]:
     # Many modern websites embed data as JSON in script tags
     script_tags = soup.find_all("script", type="application/json")
     for script in script_tags:
+        if not script.string:
+            continue
         try:
             data = json.loads(script.string)
             # Check if this looks like our expected data structure
@@ -96,27 +98,17 @@ def scrape_website(url: str) -> dict[str, Any]:
                     continue
 
     # Strategy 2: Parse HTML table structure
-    # If no JSON found, try to parse tables
-    logging.info("No embedded JSON found, attempting HTML table parsing")
-
-    result: dict[str, Any] = {"columns": [], "rows": []}
-
-    # Look for tables with court availability data
-    tables = soup.find_all("table")
-
-    if not tables:
-        logging.warning("No tables found on the page. Returning empty data structure.")
-        return result
-
-    # For now, return empty structure with a warning
-    # This would need to be customized based on actual HTML structure
-    logging.warning(
-        "HTML table parsing not fully implemented. "
-        "The actual implementation depends on the website's HTML structure. "
-        "Please inspect the HTML and update the parsing logic accordingly."
+    # If no JSON found, log error and raise exception
+    logging.error("No embedded JSON found on the page")
+    logging.error(
+        "HTML table parsing is not implemented as it requires knowledge of "
+        "the specific website structure. Please verify the website URL and structure."
     )
 
-    return result
+    # Return empty structure to allow graceful degradation
+    # The downstream processing will handle empty data appropriately
+    logging.warning("Returning empty data structure")
+    return {"columns": [], "rows": []}
 
 
 def tabularise(payload: dict[str, Any]) -> pd.DataFrame:

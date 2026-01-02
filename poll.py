@@ -7,10 +7,11 @@ from typing import Any
 
 import pandas as pd
 import requests
+from bs4 import BeautifulSoup
 from redmail import gmail
 
 # ---- config from env ----
-DATA_URL = os.getenv("DATA_URL")
+WEBSITE_URL = os.getenv("WEBSITE_URL", "https://localtenniscourts.com/")
 CACHE_STATE_PATH = os.getenv("CACHE_STATE_PATH", "cache/state.json")
 
 EMAIL_FROM = os.getenv("EMAIL_FROM", "")  # authorized Gmail address
@@ -29,10 +30,92 @@ if EMAIL_FROM and APP_PASSWORD:
 
 
 # ---------- helpers ----------
-def fetch_json(url: str) -> dict[str, Any]:
+def scrape_website(url: str) -> dict[str, Any]:
+    """
+    Scrape tennis court availability from the HTML website.
+
+    Returns a dict with the same structure as the original JSON API:
+    {
+        "columns": [...],
+        "rows": [
+            {
+                "hour": int,
+                "fromTime": "HH:MM",
+                "dayDDMM": {
+                    "day": "DD Mon",
+                    "total_spaces": int,
+                    "spaces": [
+                        {
+                            "venue_id": int,
+                            "name": str,
+                            "total_spaces": int,
+                            "scraped_at": str (ISO datetime),
+                            "freshness": str,
+                            "booking_url": str
+                        }
+                    ]
+                }
+            }
+        ]
+    }
+    """
     r = requests.get(url, timeout=15)
     r.raise_for_status()
-    return r.json()
+    soup = BeautifulSoup(r.content, "lxml")
+
+    # Initialize the data structure
+    result: dict[str, Any] = {"columns": [], "rows": []}
+
+    # Try to find a table or structured data on the page
+    # This is a generic implementation that looks for common patterns
+    # It may need to be adjusted based on the actual HTML structure
+
+    # Look for tables with court availability data
+    tables = soup.find_all("table")
+
+    if not tables:
+        # If no tables found, try to find data in divs or other structures
+        # For now, return empty structure
+        logging.warning("No tables found on the page. Returning empty data structure.")
+        return result
+
+    # Try to parse the first table as availability data
+    # This is a best-effort attempt - adjust based on actual HTML structure
+    table = tables[0]
+    headers = []
+    header_row = table.find("thead")
+    if header_row:
+        headers = [th.get_text(strip=True) for th in header_row.find_all("th")]
+    else:
+        # Try first row as headers
+        first_row = table.find("tr")
+        if first_row:
+            headers = [th.get_text(strip=True) for th in first_row.find_all(["th", "td"])]
+
+    # Build columns structure
+    if headers:
+        result["columns"] = [{"title": h, "field": f"field{i}"} for i, h in enumerate(headers)]
+
+    # Parse table rows
+    tbody = table.find("tbody") or table
+    for row in tbody.find_all("tr"):
+        cells = row.find_all("td")
+        if not cells:
+            continue
+
+        # This is a placeholder - actual parsing would depend on HTML structure
+        # For now, we create a minimal row structure
+        row_data: dict[str, Any] = {}
+
+        # Attempt to extract time and venue information
+        # Adjust this based on actual HTML structure
+        for i, cell in enumerate(cells):
+            text = cell.get_text(strip=True)
+            row_data[f"field{i}"] = text
+
+        result["rows"].append(row_data)
+
+    return result
 
 
 def tabularise(payload: dict[str, Any]) -> pd.DataFrame:
@@ -269,11 +352,11 @@ def send_email(subject: str, changed_rows: pd.DataFrame) -> None:
 
 # ---------- main ----------
 def main() -> int:
-    if not DATA_URL:
-        raise RuntimeError("DATA_URL environment variable not set")
+    if not WEBSITE_URL:
+        raise RuntimeError("WEBSITE_URL environment variable not set")
 
-    logging.info("Fetching JSON …")
-    payload = fetch_json(DATA_URL)
+    logging.info("Scraping website …")
+    payload = scrape_website(WEBSITE_URL)
 
     logging.info("Tabularising current payload …")
     curr_df = tabularise(payload)

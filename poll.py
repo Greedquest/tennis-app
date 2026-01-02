@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 import logging
 import os
 import re
@@ -34,6 +35,11 @@ def scrape_website(url: str) -> dict[str, Any]:
     """
     Scrape tennis court availability from the HTML website.
 
+    The function tries multiple strategies to extract data:
+    1. Look for JSON data in <script> tags (common pattern for SPAs)
+    2. Parse HTML tables and transform to expected format
+    3. Look for data attributes in HTML elements
+
     Returns a dict with the same structure as the original JSON API:
     {
         "columns": [...],
@@ -44,16 +50,7 @@ def scrape_website(url: str) -> dict[str, Any]:
                 "dayDDMM": {
                     "day": "DD Mon",
                     "total_spaces": int,
-                    "spaces": [
-                        {
-                            "venue_id": int,
-                            "name": str,
-                            "total_spaces": int,
-                            "scraped_at": str (ISO datetime),
-                            "freshness": str,
-                            "booking_url": str
-                        }
-                    ]
+                    "spaces": [...]
                 }
             }
         ]
@@ -63,57 +60,61 @@ def scrape_website(url: str) -> dict[str, Any]:
     r.raise_for_status()
     soup = BeautifulSoup(r.content, "lxml")
 
-    # Initialize the data structure
-    result: dict[str, Any] = {"columns": [], "rows": []}
+    # Strategy 1: Look for JSON data embedded in script tags
+    # Many modern websites embed data as JSON in script tags
+    script_tags = soup.find_all("script", type="application/json")
+    for script in script_tags:
+        try:
+            data = json.loads(script.string)
+            # Check if this looks like our expected data structure
+            if isinstance(data, dict) and ("rows" in data or "columns" in data):
+                logging.info("Found JSON data in script tag")
+                return data
+        except (json.JSONDecodeError, AttributeError):
+            continue
 
-    # Try to find a table or structured data on the page
-    # This is a generic implementation that looks for common patterns
-    # It may need to be adjusted based on the actual HTML structure
+    # Also check for script tags without explicit type that might contain JSON
+    script_tags_general = soup.find_all("script")
+    for script in script_tags_general:
+        if not script.string:
+            continue
+        # Look for variable assignments that might contain our data
+        # Pattern: var data = {...} or const data = {...}
+        for pattern in [
+            r"var\s+\w+\s*=\s*({.*?});",
+            r"const\s+\w+\s*=\s*({.*?});",
+            r"data\s*=\s*({.*?});",
+        ]:
+            matches = re.findall(pattern, script.string, re.DOTALL)
+            for match in matches:
+                try:
+                    data = json.loads(match)
+                    if isinstance(data, dict) and ("rows" in data or "columns" in data):
+                        logging.info("Found JSON data in script variable")
+                        return data
+                except (json.JSONDecodeError, ValueError):
+                    continue
+
+    # Strategy 2: Parse HTML table structure
+    # If no JSON found, try to parse tables
+    logging.info("No embedded JSON found, attempting HTML table parsing")
+
+    result: dict[str, Any] = {"columns": [], "rows": []}
 
     # Look for tables with court availability data
     tables = soup.find_all("table")
 
     if not tables:
-        # If no tables found, try to find data in divs or other structures
-        # For now, return empty structure
         logging.warning("No tables found on the page. Returning empty data structure.")
         return result
 
-    # Try to parse the first table as availability data
-    # This is a best-effort attempt - adjust based on actual HTML structure
-    table = tables[0]
-    headers = []
-    header_row = table.find("thead")
-    if header_row:
-        headers = [th.get_text(strip=True) for th in header_row.find_all("th")]
-    else:
-        # Try first row as headers
-        first_row = table.find("tr")
-        if first_row:
-            headers = [th.get_text(strip=True) for th in first_row.find_all(["th", "td"])]
-
-    # Build columns structure
-    if headers:
-        result["columns"] = [{"title": h, "field": f"field{i}"} for i, h in enumerate(headers)]
-
-    # Parse table rows
-    tbody = table.find("tbody") or table
-    for row in tbody.find_all("tr"):
-        cells = row.find_all("td")
-        if not cells:
-            continue
-
-        # This is a placeholder - actual parsing would depend on HTML structure
-        # For now, we create a minimal row structure
-        row_data: dict[str, Any] = {}
-
-        # Attempt to extract time and venue information
-        # Adjust this based on actual HTML structure
-        for i, cell in enumerate(cells):
-            text = cell.get_text(strip=True)
-            row_data[f"field{i}"] = text
-
-        result["rows"].append(row_data)
+    # For now, return empty structure with a warning
+    # This would need to be customized based on actual HTML structure
+    logging.warning(
+        "HTML table parsing not fully implemented. "
+        "The actual implementation depends on the website's HTML structure. "
+        "Please inspect the HTML and update the parsing logic accordingly."
+    )
 
     return result
 

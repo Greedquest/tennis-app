@@ -124,7 +124,7 @@ def tabularise(df: pd.DataFrame) -> pd.DataFrame:
     
     # Parse starts_at to get time
     if "starts_at" in df.columns:
-        df["Time"] = pd.to_datetime(df["starts_at"], errors="coerce").dt.time
+        df["Time"] = pd.to_datetime(df["starts_at"], format="%H:%M", errors="coerce").dt.time
     
     # Parse date
     if "date" in df.columns:

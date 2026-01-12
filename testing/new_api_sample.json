@@ -1,0 +1,34 @@
+{
+  "data": [
+    {
+      "starts_at": "07:00",
+      "ends_at": "08:00",
+      "duration": 60,
+      "price": 10.50,
+      "timestamp": 1736755200,
+      "date": "2026-01-13",
+      "location": "Islington Tennis Centre - Indoor",
+      "spaces": 2
+    },
+    {
+      "starts_at": "08:00",
+      "ends_at": "09:00",
+      "duration": 60,
+      "price": 10.50,
+      "timestamp": 1736758800,
+      "date": "2026-01-13",
+      "location": "Islington Tennis Centre - Indoor",
+      "spaces": 4
+    },
+    {
+      "starts_at": "09:00",
+      "ends_at": "10:00",
+      "duration": 60,
+      "price": 12.00,
+      "timestamp": 1736762400,
+      "date": "2026-01-13",
+      "location": "Islington Tennis Centre - Outdoor",
+      "spaces": 1
+    }
+  ]
+}

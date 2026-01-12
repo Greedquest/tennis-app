@@ -177,6 +177,7 @@ def tabularise(df: pd.DataFrame) -> pd.DataFrame:
             or pd.isna(row.get("court"))
             or pd.isna(row.get("Date"))
             or pd.isna(row.get("starts_at_24h"))
+            or pd.isna(row.get("ends_at_24h"))
         ):
             return None
         venue = row["venue"]
@@ -186,18 +187,20 @@ def tabularise(df: pd.DataFrame) -> pd.DataFrame:
             if hasattr(row["Date"], "strftime")
             else str(row["Date"])
         )
-        time_str = row["starts_at_24h"]  # Use 24-hour format for URL
-        # Construct URL similar to the booking_url pattern
-        return f"https://bookings.better.org.uk/location/{venue}/{court}/{date_str}/by-time/slot/{time_str}"
+        start_time = row["starts_at_24h"]
+        end_time = row["ends_at_24h"]
+        # Construct URL with start-end time format
+        return f"https://bookings.better.org.uk/location/{venue}/{court}/{date_str}/by-time/slot/{start_time}-{end_time}"
 
-    # Add venue, court, and time from original df for URL construction
+    # Add venue, court, and times from original df for URL construction
     result["venue"] = df.get("venue")
     result["court"] = df.get("court")
     result["starts_at_24h"] = df.get("starts_at_24h")
+    result["ends_at_24h"] = df.get("ends_at_24h")
     result["URL"] = result.apply(construct_url, axis=1)
 
     # Drop temporary columns
-    result = result.drop(columns=["venue", "court", "starts_at_24h"])
+    result = result.drop(columns=["venue", "court", "starts_at_24h", "ends_at_24h"])
 
     # Reorder columns to match expected output
     final_columns = ["Time", "Date", "Spaces", "Venue", "Venue Size", "Age", "Scraped At", "URL"]

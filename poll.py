@@ -38,23 +38,23 @@ VENUES = [
 def fetch_activities(venue: str, court: str, date: str) -> list[dict[str, Any]]:
     """
     Fetch activity data from the Better Admin API for a specific venue, court, and date.
-    
+
     Args:
         venue: Venue identifier (e.g., "islington-tennis-centre")
         court: Court/activity identifier (e.g., "tennis-court-indoor")
         date: Date in YYYY-MM-DD format
-    
+
     Returns:
         List of activity records
     """
     url = f"https://better-admin.org.uk/api/activities/venue/{venue}/activity/{court}/times"
     headers = {"Origin": "https://bookings.better.org.uk"}
     params = {"date": date}
-    
+
     r = requests.get(url, headers=headers, params=params, timeout=15)
     r.raise_for_status()
     response_data = r.json()
-    
+
     # Extract data array from response
     return response_data.get("data", [])
 
@@ -62,46 +62,46 @@ def fetch_activities(venue: str, court: str, date: str) -> list[dict[str, Any]]:
 def fetch_all_activities() -> pd.DataFrame:
     """
     Fetch activities for all venue/court combinations and the next 5 days.
-    
+
     Returns:
         DataFrame with all fetched activities
     """
     # Generate dates for next 5 days
     today = datetime.now().date()
     dates = [(today + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(5)]
-    
+
     all_records = []
     for venue_court in VENUES:
         venue = venue_court["venue"]
         court = venue_court["court"]
-        
+
         for date in dates:
             try:
                 logging.info(f"Fetching {venue}/{court} for {date}...")
                 activities = fetch_activities(venue, court, date)
-                
+
                 # Add venue and court info to each record
                 for activity in activities:
                     activity["venue"] = venue
                     activity["court"] = court
                     all_records.append(activity)
-                    
+
             except Exception as e:
                 logging.warning(f"Failed to fetch {venue}/{court} for {date}: {e}")
                 continue
-    
+
     if not all_records:
         return pd.DataFrame(
             columns=["Time", "Date", "Spaces", "Venue", "Venue Size", "Age", "Scraped At", "URL"]
         )
-    
+
     return pd.DataFrame(all_records)
 
 
 def tabularise(df: pd.DataFrame) -> pd.DataFrame:
     """
     Transform the raw API data into the expected output format.
-    
+
     The API returns records with:
     - starts_at, ends_at: time strings
     - duration: duration value
@@ -110,29 +110,29 @@ def tabularise(df: pd.DataFrame) -> pd.DataFrame:
     - date: date string
     - location: location name
     - spaces: number of available spaces
-    
+
     Returns DataFrame with columns: Time, Date, Spaces, Venue, Venue Size, Age, Scraped At, URL
     """
     if df.empty:
         return pd.DataFrame(
             columns=["Time", "Date", "Spaces", "Venue", "Venue Size", "Age", "Scraped At", "URL"]
         )
-    
+
     # Create a copy to avoid mutating the input DataFrame
     df = df.copy()
-    
+
     # Convert timestamp from Unix epoch to datetime
     if "timestamp" in df.columns:
         df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s", errors="coerce")
-    
+
     # Parse starts_at to get time
     if "starts_at" in df.columns:
         df["Time"] = pd.to_datetime(df["starts_at"], format="%H:%M", errors="coerce").dt.time
-    
+
     # Parse date
     if "date" in df.columns:
         df["Date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
-    
+
     # Rename and select columns
     result = pd.DataFrame()
     result["Time"] = df.get("Time")
@@ -142,26 +142,37 @@ def tabularise(df: pd.DataFrame) -> pd.DataFrame:
     result["Venue Size"] = None  # Not available in new API (old API had total_spaces)
     result["Age"] = None  # Not available in new API
     result["Scraped At"] = df.get("timestamp")
-    
+
     # Construct URL from venue, court, date, and time
     def construct_url(row):
-        if pd.isna(row.get("venue")) or pd.isna(row.get("court")) or pd.isna(row.get("Date")) or pd.isna(row.get("Time")):
+        if (
+            pd.isna(row.get("venue"))
+            or pd.isna(row.get("court"))
+            or pd.isna(row.get("Date"))
+            or pd.isna(row.get("Time"))
+        ):
             return None
         venue = row["venue"]
         court = row["court"]
-        date_str = row["Date"].strftime("%Y-%m-%d") if hasattr(row["Date"], "strftime") else str(row["Date"])
-        time_str = row["Time"].strftime("%H:%M") if hasattr(row["Time"], "strftime") else str(row["Time"])
+        date_str = (
+            row["Date"].strftime("%Y-%m-%d")
+            if hasattr(row["Date"], "strftime")
+            else str(row["Date"])
+        )
+        time_str = (
+            row["Time"].strftime("%H:%M") if hasattr(row["Time"], "strftime") else str(row["Time"])
+        )
         # Construct URL similar to the booking_url pattern
         return f"https://bookings.better.org.uk/location/{venue}/{court}/{date_str}/by-time/slot/{time_str}"
-    
+
     # Add venue and court from original df for URL construction
     result["venue"] = df.get("venue")
     result["court"] = df.get("court")
     result["URL"] = result.apply(construct_url, axis=1)
-    
+
     # Drop temporary columns
     result = result.drop(columns=["venue", "court"])
-    
+
     # Reorder columns to match expected output
     final_columns = ["Time", "Date", "Spaces", "Venue", "Venue Size", "Age", "Scraped At", "URL"]
     return result[final_columns]

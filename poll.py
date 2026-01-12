@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 import logging
 import os
-import re
 import sys
+from datetime import datetime, timedelta
 from typing import Any
 
 import pandas as pd
@@ -10,7 +10,6 @@ import requests
 from redmail import gmail
 
 # ---- config from env ----
-DATA_URL = os.getenv("DATA_URL")
 CACHE_STATE_PATH = os.getenv("CACHE_STATE_PATH", "cache/state.json")
 
 EMAIL_FROM = os.getenv("EMAIL_FROM", "")  # authorized Gmail address
@@ -28,129 +27,182 @@ if EMAIL_FROM and APP_PASSWORD:
     gmail.password = APP_PASSWORD
 
 
+# Venue/Court combinations to poll
+VENUES = [
+    {"venue": "islington-tennis-centre", "court": "tennis-court-indoor"},
+    {"venue": "islington-tennis-centre", "court": "tennis-court-outdoor"},
+]
+
+
 # ---------- helpers ----------
-def fetch_json(url: str) -> dict[str, Any]:
-    r = requests.get(url, timeout=15)
-    r.raise_for_status()
-    return r.json()
-
-
-def tabularise(payload: dict[str, Any]) -> pd.DataFrame:
+def fetch_activities(venue: str, court: str, date: str) -> list[dict[str, Any]]:
     """
-    Mirror Power Query transformation:
-      1. Convert rows to table
-      2. Unpivot other columns (keep hour, fromTime; unpivot day* columns)
-      3. Expand Value record (day, total_spaces, spaces)
-      4. Expand spaces list
-      5. Expand spaces record fields
-      6. Change column types
-      7. Rename and remove columns
+    Fetch activity data from the Better Admin API for a specific venue, court, and date.
+
+    Args:
+        venue: Venue identifier (e.g., "islington-tennis-centre")
+        court: Court/activity identifier (e.g., "tennis-court-indoor")
+        date: Date in YYYY-MM-DD format
+
+    Returns:
+        List of activity records
+    """
+    url = f"https://better-admin.org.uk/api/activities/venue/{venue}/activity/{court}/times"
+    headers = {
+        "Origin": "https://bookings.better.org.uk",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://bookings.better.org.uk/",
+    }
+    params = {"date": date}
+
+    r = requests.get(url, headers=headers, params=params, timeout=15)
+    r.raise_for_status()
+    response_data = r.json()
+
+    # Extract data array from response
+    return response_data.get("data", [])
+
+
+def fetch_all_activities() -> pd.DataFrame:
+    """
+    Fetch activities for all venue/court combinations and the next 5 days.
+
+    Returns:
+        DataFrame with all fetched activities
+    """
+    # Generate dates for next 5 days
+    today = datetime.now().date()
+    dates = [(today + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(5)]
+
+    all_records = []
+    for venue_court in VENUES:
+        venue = venue_court["venue"]
+        court = venue_court["court"]
+
+        for date in dates:
+            try:
+                logging.info(f"Fetching {venue}/{court} for {date}...")
+                activities = fetch_activities(venue, court, date)
+
+                # Add venue and court info to each record
+                for activity in activities:
+                    activity["venue"] = venue
+                    activity["court"] = court
+                    all_records.append(activity)
+
+            except Exception as e:
+                logging.warning(f"Failed to fetch {venue}/{court} for {date}: {e}")
+                continue
+
+    if not all_records:
+        return pd.DataFrame(
+            columns=["Time", "Date", "Spaces", "Venue", "Venue Size", "Age", "Scraped At", "URL"]
+        )
+
+    return pd.DataFrame(all_records)
+
+
+def tabularise(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Transform the raw API data into the expected output format.
+
+    The API returns records with nested objects:
+    - starts_at: {format_12_hour, format_24_hour}
+    - ends_at: {format_12_hour, format_24_hour}
+    - duration: text (e.g., "60min")
+    - price: {formatted_amount, is_estimated}
+    - timestamp: Unix timestamp (true start time)
+    - date: date string
+    - location: location name
+    - spaces: number of available spaces
+    - action_to_show: dropped
 
     Returns DataFrame with columns: Time, Date, Spaces, Venue, Venue Size, Age, Scraped At, URL
     """
-    # Step 1: Convert rows to DataFrame
-    rows_df = pd.DataFrame(payload.get("rows", []))
-
-    if rows_df.empty:
+    if df.empty:
         return pd.DataFrame(
             columns=["Time", "Date", "Spaces", "Venue", "Venue Size", "Age", "Scraped At", "URL"]
         )
 
-    # Step 2: Identify columns to keep (id_cols) and columns to unpivot (day_cols)
-    # According to Power Query: keep hour and fromTime, unpivot all other columns
-    id_cols = ["hour", "fromTime"]
-    day_cols = [col for col in rows_df.columns if col not in id_cols]
+    # Create a copy to avoid mutating the input DataFrame
+    df = df.copy()
 
-    # Step 3: Unpivot (melt) the day columns
-    unpivoted = rows_df.melt(
-        id_vars=id_cols, value_vars=day_cols, var_name="Attribute", value_name="Value"
-    )
-
-    # Step 4: Drop rows where Value is None
-    unpivoted = unpivoted.dropna(subset=["Value"])
-
-    if unpivoted.empty:
-        return pd.DataFrame(
-            columns=["Time", "Date", "Spaces", "Venue", "Venue Size", "Age", "Scraped At", "URL"]
+    # Flatten nested fields - starts_at, ends_at, price
+    # Check if DataFrame is not empty before accessing iloc[0]
+    if not df.empty and "starts_at" in df.columns and isinstance(df["starts_at"].iloc[0], dict):
+        df["starts_at_12h"] = df["starts_at"].apply(
+            lambda x: x.get("format_12_hour") if isinstance(x, dict) else x
+        )
+        df["starts_at_24h"] = df["starts_at"].apply(
+            lambda x: x.get("format_24_hour") if isinstance(x, dict) else x
         )
 
-    # Step 5: Expand the Value column (dict with day, total_spaces, spaces)
-    value_expanded = pd.json_normalize(unpivoted["Value"].tolist())
-    result = pd.concat(
-        [unpivoted.drop(columns=["Value"]).reset_index(drop=True), value_expanded], axis=1
-    )
-
-    # Step 6: Filter out rows with empty spaces arrays to avoid NaN values
-    result = result[result["spaces"].str.len() > 0]
-
-    if result.empty:
-        return pd.DataFrame(
-            columns=["Time", "Date", "Spaces", "Venue", "Venue Size", "Age", "Scraped At", "URL"]
+    if not df.empty and "ends_at" in df.columns and isinstance(df["ends_at"].iloc[0], dict):
+        df["ends_at_12h"] = df["ends_at"].apply(
+            lambda x: x.get("format_12_hour") if isinstance(x, dict) else x
+        )
+        df["ends_at_24h"] = df["ends_at"].apply(
+            lambda x: x.get("format_24_hour") if isinstance(x, dict) else x
         )
 
-    result = result.reset_index(drop=True)
+    if not df.empty and "price" in df.columns and isinstance(df["price"].iloc[0], dict):
+        df["price_formatted"] = df["price"].apply(
+            lambda x: x.get("formatted_amount") if isinstance(x, dict) else x
+        )
 
-    # Step 7: Expand the spaces list column
-    result = result.explode("spaces").reset_index(drop=True)
+    # Convert timestamp from Unix epoch to datetime (this is the true start time)
+    if "timestamp" in df.columns:
+        df["timestamp_dt"] = pd.to_datetime(df["timestamp"], unit="s", errors="coerce")
 
-    # Step 8: Expand spaces record
-    spaces_expanded = pd.json_normalize(result["spaces"].tolist())
-    result = pd.concat(
-        [result.drop(columns=["spaces"]).reset_index(drop=True), spaces_expanded], axis=1
-    )
+    # Parse date
+    if "date" in df.columns:
+        df["Date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
 
-    # Handle duplicate 'total_spaces' columns by renaming them
-    # First total_spaces is from Value (day total), second is from spaces (venue total)
-    cols = result.columns.tolist()
-    new_cols = []
-    total_spaces_count = 0
-    for col in cols:
-        if col == "total_spaces":
-            if total_spaces_count == 0:
-                new_cols.append("Value.total_spaces")
-            else:
-                new_cols.append("Value.spaces.total_spaces")
-            total_spaces_count += 1
-        else:
-            new_cols.append(col)
-    result.columns = pd.Index(new_cols)
+    # Rename and select columns
+    result = pd.DataFrame()
+    result["Time"] = df.get("starts_at_12h")  # Use 12-hour format as requested
+    result["Date"] = df.get("Date")
+    result["Spaces"] = df.get("spaces")
+    result["Venue"] = df.get("location")
+    result["Venue Size"] = None  # Not available in new API (old API had total_spaces)
+    result["Age"] = None  # Not available in new API
+    result["Scraped At"] = df.get("timestamp_dt")  # Use converted timestamp
 
-    # Step 9: Apply type conversions (matching Power Query)
-    # Note: hour, venue_id, and Attribute are not converted since they will be dropped in Step 11
-    result["fromTime"] = pd.to_datetime(result["fromTime"], format="%H:%M", errors="coerce").dt.time
+    # Construct URL from venue, court, date, and time (using 24h format for URL)
+    def construct_url(row):
+        if (
+            pd.isna(row.get("venue"))
+            or pd.isna(row.get("court"))
+            or pd.isna(row.get("Date"))
+            or pd.isna(row.get("starts_at_24h"))
+            or pd.isna(row.get("ends_at_24h"))
+        ):
+            return None
+        venue = row["venue"]
+        court = row["court"]
+        date_str = (
+            row["Date"].strftime("%Y-%m-%d")
+            if hasattr(row["Date"], "strftime")
+            else str(row["Date"])
+        )
+        start_time = row["starts_at_24h"]
+        end_time = row["ends_at_24h"]
+        # Construct URL with start-end time format
+        return f"https://bookings.better.org.uk/location/{venue}/{court}/{date_str}/by-time/slot/{start_time}-{end_time}"
 
-    # Parse dates by extracting full date from booking_url
-    # booking_url contains full date like "2026-01-02"
-    def extract_date_from_url(row):
-        booking_url = row.get("booking_url", "")
-        match = re.search(r"/(\d{4}-\d{2}-\d{2})/", booking_url)
-        if match:
-            return pd.to_datetime(match.group(1), errors="coerce")
-        return pd.NaT
+    # Add venue, court, and times from original df for URL construction
+    result["venue"] = df.get("venue")
+    result["court"] = df.get("court")
+    result["starts_at_24h"] = df.get("starts_at_24h")
+    result["ends_at_24h"] = df.get("ends_at_24h")
+    result["URL"] = result.apply(construct_url, axis=1)
 
-    result["day"] = result.apply(extract_date_from_url, axis=1).dt.date
-    result["scraped_at"] = pd.to_datetime(result["scraped_at"], errors="coerce")
+    # Drop temporary columns
+    result = result.drop(columns=["venue", "court", "starts_at_24h", "ends_at_24h"])
 
-    # Step 10: Rename columns (first rename)
-    result = result.rename(
-        columns={"fromTime": "Time", "day": "Date", "Value.total_spaces": "Spaces"}
-    )
-
-    # Step 11: Remove columns (venue_id, hour, Attribute)
-    result = result.drop(columns=["venue_id", "hour", "Attribute"])
-
-    # Step 12: Rename columns (second rename)
-    result = result.rename(
-        columns={
-            "name": "Venue",
-            "Value.spaces.total_spaces": "Venue Size",
-            "freshness": "Age",
-            "scraped_at": "Scraped At",
-            "booking_url": "URL",
-        }
-    )
-
-    # Reorder columns to match Power Query output
+    # Reorder columns to match expected output
     final_columns = ["Time", "Date", "Spaces", "Venue", "Venue Size", "Age", "Scraped At", "URL"]
     return result[final_columns]
 
@@ -269,14 +321,11 @@ def send_email(subject: str, changed_rows: pd.DataFrame) -> None:
 
 # ---------- main ----------
 def main() -> int:
-    if not DATA_URL:
-        raise RuntimeError("DATA_URL environment variable not set")
-
-    logging.info("Fetching JSON …")
-    payload = fetch_json(DATA_URL)
+    logging.info("Fetching activities from Better Admin API...")
+    raw_df = fetch_all_activities()
 
     logging.info("Tabularising current payload …")
-    curr_df = tabularise(payload)
+    curr_df = tabularise(raw_df)
 
     logging.info("Loading previous rows from cache …")
     prev_df = load_prev_rows(CACHE_STATE_PATH)

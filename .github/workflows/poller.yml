@@ -41,7 +41,6 @@ jobs:
 
       - name: Run poller
         env:
-          DATA_URL: ${{ secrets.DATA_URL }}
           CACHE_STATE_PATH: cache/state.json
           LOG_LEVEL: INFO
 

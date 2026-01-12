@@ -48,7 +48,13 @@ def fetch_activities(venue: str, court: str, date: str) -> list[dict[str, Any]]:
         List of activity records
     """
     url = f"https://better-admin.org.uk/api/activities/venue/{venue}/activity/{court}/times"
-    headers = {"Origin": "https://bookings.better.org.uk"}
+    headers = {
+        "Origin": "https://bookings.better.org.uk",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://bookings.better.org.uk/",
+    }
     params = {"date": date}
 
     r = requests.get(url, headers=headers, params=params, timeout=15)

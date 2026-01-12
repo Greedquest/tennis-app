@@ -102,14 +102,16 @@ def tabularise(df: pd.DataFrame) -> pd.DataFrame:
     """
     Transform the raw API data into the expected output format.
 
-    The API returns records with:
-    - starts_at, ends_at: time strings
-    - duration: duration value
-    - price: price value
-    - timestamp: Unix timestamp
+    The API returns records with nested objects:
+    - starts_at: {format_12_hour, format_24_hour}
+    - ends_at: {format_12_hour, format_24_hour}
+    - duration: text (e.g., "60min")
+    - price: {formatted_amount, is_estimated}
+    - timestamp: Unix timestamp (true start time)
     - date: date string
     - location: location name
     - spaces: number of available spaces
+    - action_to_show: dropped
 
     Returns DataFrame with columns: Time, Date, Spaces, Venue, Venue Size, Age, Scraped At, URL
     """
@@ -121,13 +123,34 @@ def tabularise(df: pd.DataFrame) -> pd.DataFrame:
     # Create a copy to avoid mutating the input DataFrame
     df = df.copy()
 
-    # Convert timestamp from Unix epoch to datetime
-    if "timestamp" in df.columns:
-        df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s", errors="coerce")
+    # Flatten nested fields - starts_at, ends_at, price
+    if "starts_at" in df.columns and isinstance(df["starts_at"].iloc[0], dict):
+        df["starts_at_12h"] = df["starts_at"].apply(
+            lambda x: x.get("format_12_hour") if isinstance(x, dict) else x
+        )
+        df["starts_at_24h"] = df["starts_at"].apply(
+            lambda x: x.get("format_24_hour") if isinstance(x, dict) else x
+        )
 
-    # Parse starts_at to get time
-    if "starts_at" in df.columns:
-        df["Time"] = pd.to_datetime(df["starts_at"], format="%H:%M", errors="coerce").dt.time
+    if "ends_at" in df.columns and isinstance(df["ends_at"].iloc[0], dict):
+        df["ends_at_12h"] = df["ends_at"].apply(
+            lambda x: x.get("format_12_hour") if isinstance(x, dict) else x
+        )
+        df["ends_at_24h"] = df["ends_at"].apply(
+            lambda x: x.get("format_24_hour") if isinstance(x, dict) else x
+        )
+
+    if "price" in df.columns and isinstance(df["price"].iloc[0], dict):
+        df["price_formatted"] = df["price"].apply(
+            lambda x: x.get("formatted_amount") if isinstance(x, dict) else x
+        )
+        df["price_is_estimated"] = df["price"].apply(
+            lambda x: x.get("is_estimated") if isinstance(x, dict) else None
+        )
+
+    # Convert timestamp from Unix epoch to datetime (this is the true start time)
+    if "timestamp" in df.columns:
+        df["timestamp_dt"] = pd.to_datetime(df["timestamp"], unit="s", errors="coerce")
 
     # Parse date
     if "date" in df.columns:
@@ -135,21 +158,21 @@ def tabularise(df: pd.DataFrame) -> pd.DataFrame:
 
     # Rename and select columns
     result = pd.DataFrame()
-    result["Time"] = df.get("Time")
+    result["Time"] = df.get("starts_at_12h")  # Use 12-hour format as requested
     result["Date"] = df.get("Date")
     result["Spaces"] = df.get("spaces")
-    result["Venue"] = df.get("location", df.get("venue"))
+    result["Venue"] = df.get("location")
     result["Venue Size"] = None  # Not available in new API (old API had total_spaces)
     result["Age"] = None  # Not available in new API
-    result["Scraped At"] = df.get("timestamp")
+    result["Scraped At"] = df.get("timestamp_dt")  # Use converted timestamp
 
-    # Construct URL from venue, court, date, and time
+    # Construct URL from venue, court, date, and time (using 24h format for URL)
     def construct_url(row):
         if (
             pd.isna(row.get("venue"))
             or pd.isna(row.get("court"))
             or pd.isna(row.get("Date"))
-            or pd.isna(row.get("Time"))
+            or pd.isna(row.get("starts_at_24h"))
         ):
             return None
         venue = row["venue"]
@@ -159,19 +182,18 @@ def tabularise(df: pd.DataFrame) -> pd.DataFrame:
             if hasattr(row["Date"], "strftime")
             else str(row["Date"])
         )
-        time_str = (
-            row["Time"].strftime("%H:%M") if hasattr(row["Time"], "strftime") else str(row["Time"])
-        )
+        time_str = row["starts_at_24h"]  # Use 24-hour format for URL
         # Construct URL similar to the booking_url pattern
         return f"https://bookings.better.org.uk/location/{venue}/{court}/{date_str}/by-time/slot/{time_str}"
 
-    # Add venue and court from original df for URL construction
+    # Add venue, court, and time from original df for URL construction
     result["venue"] = df.get("venue")
     result["court"] = df.get("court")
+    result["starts_at_24h"] = df.get("starts_at_24h")
     result["URL"] = result.apply(construct_url, axis=1)
 
     # Drop temporary columns
-    result = result.drop(columns=["venue", "court"])
+    result = result.drop(columns=["venue", "court", "starts_at_24h"])
 
     # Reorder columns to match expected output
     final_columns = ["Time", "Date", "Spaces", "Venue", "Venue Size", "Age", "Scraped At", "URL"]

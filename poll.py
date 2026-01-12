@@ -124,7 +124,8 @@ def tabularise(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
     # Flatten nested fields - starts_at, ends_at, price
-    if "starts_at" in df.columns and isinstance(df["starts_at"].iloc[0], dict):
+    # Check if DataFrame is not empty before accessing iloc[0]
+    if not df.empty and "starts_at" in df.columns and isinstance(df["starts_at"].iloc[0], dict):
         df["starts_at_12h"] = df["starts_at"].apply(
             lambda x: x.get("format_12_hour") if isinstance(x, dict) else x
         )
@@ -132,7 +133,7 @@ def tabularise(df: pd.DataFrame) -> pd.DataFrame:
             lambda x: x.get("format_24_hour") if isinstance(x, dict) else x
         )
 
-    if "ends_at" in df.columns and isinstance(df["ends_at"].iloc[0], dict):
+    if not df.empty and "ends_at" in df.columns and isinstance(df["ends_at"].iloc[0], dict):
         df["ends_at_12h"] = df["ends_at"].apply(
             lambda x: x.get("format_12_hour") if isinstance(x, dict) else x
         )
@@ -140,12 +141,9 @@ def tabularise(df: pd.DataFrame) -> pd.DataFrame:
             lambda x: x.get("format_24_hour") if isinstance(x, dict) else x
         )
 
-    if "price" in df.columns and isinstance(df["price"].iloc[0], dict):
+    if not df.empty and "price" in df.columns and isinstance(df["price"].iloc[0], dict):
         df["price_formatted"] = df["price"].apply(
             lambda x: x.get("formatted_amount") if isinstance(x, dict) else x
-        )
-        df["price_is_estimated"] = df["price"].apply(
-            lambda x: x.get("is_estimated") if isinstance(x, dict) else None
         )
 
     # Convert timestamp from Unix epoch to datetime (this is the true start time)

@@ -118,6 +118,9 @@ def tabularise(df: pd.DataFrame) -> pd.DataFrame:
             columns=["Time", "Date", "Spaces", "Venue", "Venue Size", "Age", "Scraped At", "URL"]
         )
     
+    # Create a copy to avoid mutating the input DataFrame
+    df = df.copy()
+    
     # Convert timestamp from Unix epoch to datetime
     if "timestamp" in df.columns:
         df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s", errors="coerce")
@@ -136,7 +139,7 @@ def tabularise(df: pd.DataFrame) -> pd.DataFrame:
     result["Date"] = df.get("Date")
     result["Spaces"] = df.get("spaces")
     result["Venue"] = df.get("location", df.get("venue"))
-    result["Venue Size"] = df.get("spaces")  # Using spaces as venue size (may need adjustment)
+    result["Venue Size"] = None  # Not available in new API (old API had total_spaces)
     result["Age"] = None  # Not available in new API
     result["Scraped At"] = df.get("timestamp")
     

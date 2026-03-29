@@ -1,5 +1,6 @@
 """Email notification via Gmail SMTP (Red-Mail)."""
 
+import html
 import logging
 
 import polars as pl
@@ -15,12 +16,32 @@ def configure_gmail() -> None:
         gmail.password = APP_PASSWORD
 
 
+def _dataframe_to_html(df: pl.DataFrame) -> str:
+    """Render a Polars DataFrame as an HTML table string (no pyarrow needed)."""
+    rows = df.to_dicts()
+    cols = df.columns
+
+    parts = ['<table border="1" cellpadding="4" cellspacing="0">']
+    parts.append("<thead><tr>")
+    for c in cols:
+        parts.append(f"<th>{html.escape(c)}</th>")
+    parts.append("</tr></thead><tbody>")
+
+    for row in rows:
+        parts.append("<tr>")
+        for c in cols:
+            val = row[c]
+            cell = html.escape(str(val)) if val is not None else ""
+            parts.append(f"<td>{cell}</td>")
+        parts.append("</tr>")
+
+    parts.append("</tbody></table>")
+    return "\n".join(parts)
+
+
 def send_email(subject: str, changed_rows: pl.DataFrame) -> None:
     """
     Send an HTML email with a table of changed tennis court availability.
-
-    Red-Mail renders pandas DataFrames as styled HTML tables, so we convert
-    the Polars frame to pandas for the email body.
 
     Args:
         subject: Email subject line
@@ -38,18 +59,18 @@ def send_email(subject: str, changed_rows: pl.DataFrame) -> None:
     configure_gmail()
 
     display_columns = ["Date", "Time", "Venue", "Spaces", "Venue Size", "URL"]
-    df_display = changed_rows.select(display_columns).to_pandas()
+    table_html = _dataframe_to_html(changed_rows.select(display_columns))
+
+    body = f"""
+    <h2>Tennis Court Availability Changes</h2>
+    <p>{len(changed_rows)} availability change(s) detected:</p>
+    {table_html}
+    """
 
     gmail.send(
         sender=EMAIL_FROM,
         receivers=[EMAIL_TO],
         subject=subject,
-        html="""
-        <h2>Tennis Court Availability Changes</h2>
-        <p>{{ num_changes }} availability change(s) detected:</p>
-        {{ my_table }}
-        """,
-        body_tables={"my_table": df_display},
-        body_params={"num_changes": len(changed_rows)},
+        html=body,
     )
     logging.info("Email sent successfully via SMTP")

@@ -73,6 +73,8 @@ def fetch_all_activities(
                 activities = fetch_activities(venue, court, date)
 
                 for activity in activities:
+                    if not isinstance(activity, dict):
+                        continue
                     activity["venue"] = venue
                     activity["court"] = court
                     all_records.append(activity)

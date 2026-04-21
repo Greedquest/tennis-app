@@ -95,6 +95,7 @@ def _(cache, fetch_all_activities, json, pd, refresh_btn, tabularise):
         except Exception as _e:
             _error = str(_e)
 
+    _cache_error = None
     if _df is None and cache.cached_json:
         try:
             _records = json.loads(cache.cached_json)
@@ -104,13 +105,15 @@ def _(cache, fetch_all_activities, json, pd, refresh_btn, tabularise):
                     _df["Date"] = pd.to_datetime(_df["Date"], errors="coerce").dt.date
                 if "Scraped At" in _df.columns:
                     _df["Scraped At"] = pd.to_datetime(_df["Scraped At"], errors="coerce")
-        except Exception:
+        except Exception as _ce:
             _df = None
+            _cache_error = f"Cached data could not be read ({_ce}); press Refresh to reload."
 
     current_df = _df if _df is not None else _EMPTY
     fetch_error = _error
+    cache_error = _cache_error
     is_fresh = _is_fresh
-    return current_df, fetch_error, is_fresh
+    return cache_error, current_df, fetch_error, is_fresh
 
 
 @app.cell
@@ -124,7 +127,7 @@ def _(cache, current_df, is_fresh, json):
 
 
 @app.cell
-def _(cache, fetch_error, mo, refresh_btn):
+def _(cache, cache_error, fetch_error, mo, refresh_btn):
     """Title, refresh button and cache status bar."""
     _ts_md = (
         mo.md(f"🕒 Last cached: **{cache.cached_ts}**")
@@ -134,6 +137,8 @@ def _(cache, fetch_error, mo, refresh_btn):
     _status = (
         mo.callout(mo.md(f"⚠️ Fetch failed: {fetch_error}"), kind="warn")
         if fetch_error
+        else mo.callout(mo.md(f"⚠️ {cache_error}"), kind="warn")
+        if cache_error
         else _ts_md
     )
     mo.vstack(

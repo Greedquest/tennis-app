@@ -1,3 +1,12 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#     "marimo>=0.23.0",
+#     "polars>=1.0.0",
+#     "requests>=2.28.0",
+# ]
+# ///
+
 import marimo
 
 __generated_with = "0.23.2"
@@ -6,71 +15,130 @@ app = marimo.App(width="medium")
 
 @app.cell
 def _():
-    import sys
-
-    sys.path.insert(0, ".")
-    import anywidget
-    import json
-    import traitlets
+    import logging
+    from datetime import UTC, datetime, timedelta
 
     import marimo as mo
     import polars as pl
+    import requests
 
-    from tennis_app.fetch import fetch_all_activities
-    from tennis_app.transform import tabularise
-
-    return anywidget, fetch_all_activities, json, mo, pl, tabularise, traitlets
+    return UTC, datetime, logging, mo, pl, requests, timedelta
 
 
 @app.cell
-def _(anywidget, traitlets):
-    class LocalStorageCache(anywidget.AnyWidget):
-        """Bidirectional localStorage bridge via anywidget.
+def _(datetime, logging, requests, timedelta):
+    _VENUES = [
+        {"venue": "islington-tennis-centre", "court": "tennis-court-indoor"},
+        {"venue": "islington-tennis-centre", "court": "tennis-court-outdoor"},
+    ]
 
-        JS -> Python (on page load): cached_json, cached_ts
-        Python -> JS (after fresh fetch): data_to_save triggers a write
-        """
+    def fetch_all_activities(days_ahead=5):
+        today = datetime.now().date()
+        dates = [
+            (today + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days_ahead)
+        ]
+        all_records = []
+        for vc in _VENUES:
+            venue, court = vc["venue"], vc["court"]
+            for date in dates:
+                try:
+                    url = (
+                        f"https://better-admin.org.uk/api/activities/venue/"
+                        f"{venue}/activity/{court}/times"
+                    )
+                    r = requests.get(
+                        url,
+                        headers={
+                            "Origin": "https://bookings.better.org.uk",
+                            "User-Agent": (
+                                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                                "Chrome/120.0.0.0 Safari/537.36"
+                            ),
+                            "Accept": "application/json, text/plain, */*",
+                            "Referer": "https://bookings.better.org.uk/",
+                        },
+                        params={"date": date},
+                        timeout=15,
+                    )
+                    r.raise_for_status()
+                    for activity in r.json().get("data", []):
+                        if isinstance(activity, dict):
+                            activity["venue"] = venue
+                            activity["court"] = court
+                            all_records.append(activity)
+                except Exception as e:
+                    logging.warning("Failed %s/%s %s: %s", venue, court, date, e)
+        return all_records
 
-        _esm = """
-        function render({ model, el }) {
-            const KEY    = 'tennis_app_cache';
-            const KEY_TS = 'tennis_app_cache_ts';
+    return (fetch_all_activities,)
 
-            // Push existing cache to Python on init
-            const stored   = localStorage.getItem(KEY);
-            const storedTs = localStorage.getItem(KEY_TS);
-            if (stored) {
-                model.set('cached_json', stored);
-                model.set('cached_ts',   storedTs || '');
-                model.save_changes();
+
+@app.cell
+def _(UTC, datetime, pl):
+    def tabularise(raw_records):
+        empty = pl.DataFrame(
+            schema={
+                "Time": pl.Utf8,
+                "Date": pl.Date,
+                "Spaces": pl.Int64,
+                "Venue": pl.Utf8,
+                "Venue Size": pl.Utf8,
+                "Age": pl.Utf8,
+                "Scraped At": pl.Datetime,
+                "URL": pl.Utf8,
             }
-
-            // When Python sets data_to_save, persist it and echo the timestamp
-            model.on('change:data_to_save', () => {
-                const data = model.get('data_to_save');
-                if (data) {
-                    const now = new Date().toLocaleString();
-                    localStorage.setItem(KEY,    data);
-                    localStorage.setItem(KEY_TS, now);
-                    model.set('cached_ts', now);
-                    model.save_changes();
+        )
+        if not raw_records:
+            return empty
+        flat = []
+        for rec in raw_records:
+            starts_at = rec.get("starts_at") or {}
+            ends_at = rec.get("ends_at") or {}
+            flat.append(
+                {
+                    "time_12h": starts_at.get("format_12_hour"),
+                    "time_24h": starts_at.get("format_24_hour"),
+                    "end_24h": ends_at.get("format_24_hour"),
+                    "date": rec.get("date"),
+                    "spaces": rec.get("spaces"),
+                    "location": rec.get("location"),
+                    "timestamp": rec.get("timestamp"),
+                    "venue": rec.get("venue"),
+                    "court": rec.get("court"),
                 }
-            });
-        }
-        export default { render };
-        """
+            )
+        df = pl.DataFrame(flat)
+        return df.select(
+            pl.col("time_12h").alias("Time"),
+            pl.col("date").str.strptime(pl.Date, "%Y-%m-%d", strict=False).alias("Date"),
+            pl.col("spaces").cast(pl.Int64).alias("Spaces"),
+            pl.col("location").alias("Venue"),
+            pl.lit(None).cast(pl.Utf8).alias("Venue Size"),
+            pl.lit(None).cast(pl.Utf8).alias("Age"),
+            pl.col("timestamp")
+            .cast(pl.Int64)
+            .map_elements(
+                lambda ts: datetime.fromtimestamp(ts, tz=UTC) if ts is not None else None,
+                return_dtype=pl.Datetime("us", "UTC"),
+            )
+            .cast(pl.Datetime("us"))
+            .alias("Scraped At"),
+            (
+                pl.lit("https://bookings.better.org.uk/location/")
+                + pl.col("venue")
+                + pl.lit("/")
+                + pl.col("court")
+                + pl.lit("/")
+                + pl.col("date")
+                + pl.lit("/by-time/slot/")
+                + pl.col("time_24h")
+                + pl.lit("-")
+                + pl.col("end_24h")
+            ).alias("URL"),
+        )
 
-        cached_json = traitlets.Unicode("").tag(sync=True)
-        cached_ts = traitlets.Unicode("").tag(sync=True)
-        data_to_save = traitlets.Unicode("").tag(sync=True)
-
-    return (LocalStorageCache,)
-
-
-@app.cell
-def _(LocalStorageCache):
-    cache = LocalStorageCache()
-    return (cache,)
+    return (tabularise,)
 
 
 @app.cell
@@ -80,8 +148,8 @@ def _(mo):
 
 
 @app.cell
-def _(cache, fetch_all_activities, json, pl, refresh_btn, tabularise):
-    """Fetch from API on button click, otherwise restore from localStorage."""
+def _(fetch_all_activities, pl, refresh_btn, tabularise):
+    """Fetch from API on button click."""
     _SCHEMA = {
         "Time": pl.Utf8,
         "Date": pl.Date,
@@ -96,66 +164,25 @@ def _(cache, fetch_all_activities, json, pl, refresh_btn, tabularise):
 
     _df = None
     _error = None
-    _cache_error = None
-    _is_fresh = False
 
     if refresh_btn.value > 0:
         try:
             _df = tabularise(fetch_all_activities())
-            _is_fresh = True
         except Exception as _e:
             _error = str(_e)
 
-    if _df is None and cache.cached_json:
-        try:
-            _records = json.loads(cache.cached_json)
-            if _records:
-                _df = pl.from_dicts(_records, schema_overrides={"Spaces": pl.Int64})
-                if "Date" in _df.columns:
-                    _df = _df.with_columns(
-                        pl.col("Date").cast(pl.Utf8).str.to_date(strict=False)
-                    )
-                if "Scraped At" in _df.columns:
-                    _df = _df.with_columns(
-                        pl.col("Scraped At")
-                        .cast(pl.Utf8)
-                        .str.to_datetime(strict=False)
-                    )
-            else:
-                _df = _EMPTY
-        except Exception as _ce:
-            _df = None
-            _cache_error = f"Cached data could not be read ({_ce}); press Refresh to reload."
-
     current_df = _df if _df is not None else _EMPTY
     fetch_error = _error
-    cache_error = _cache_error
-    is_fresh = _is_fresh
-    return cache_error, current_df, fetch_error, is_fresh
+    return current_df, fetch_error
 
 
 @app.cell
-def _(cache, current_df, is_fresh, json):
-    """Persist fresh API data to localStorage (side-effect only, no output)."""
-    if is_fresh and not current_df.is_empty():
-        cache.data_to_save = json.dumps(current_df.to_dicts(), default=str)
-    return
-
-
-@app.cell
-def _(cache, cache_error, fetch_error, mo, refresh_btn):
-    """Title, refresh button and cache status bar."""
-    _ts_md = (
-        mo.md(f"🕒 Last cached: **{cache.cached_ts}**")
-        if cache.cached_ts
-        else mo.md("_No cache — press Refresh to load_")
-    )
+def _(fetch_error, mo, refresh_btn):
+    """Title, refresh button and status bar."""
     _status = (
         mo.callout(mo.md(f"⚠️ Fetch failed: {fetch_error}"), kind="warn")
         if fetch_error
-        else mo.callout(mo.md(f"⚠️ {cache_error}"), kind="warn")
-        if cache_error
-        else _ts_md
+        else mo.md("_Press Refresh to fetch live data_")
     )
     mo.vstack(
         [

@@ -26,7 +26,18 @@ def _():
     import requests
     import traitlets
 
-    return UTC, anywidget, datetime, json, logging, mo, pl, requests, timedelta, traitlets
+    return (
+        UTC,
+        anywidget,
+        datetime,
+        json,
+        logging,
+        mo,
+        pl,
+        requests,
+        timedelta,
+        traitlets,
+    )
 
 
 @app.cell
@@ -66,8 +77,8 @@ def _(anywidget, traitlets):
         """
         _css = ":host { display: none; }"
 
-        cached_json  = traitlets.Unicode("").tag(sync=True)
-        cached_ts    = traitlets.Unicode("").tag(sync=True)
+        cached_json = traitlets.Unicode("").tag(sync=True)
+        cached_ts = traitlets.Unicode("").tag(sync=True)
         data_to_save = traitlets.Unicode("").tag(sync=True)
 
     return (LocalStorageWidget,)
@@ -91,10 +102,7 @@ def _(datetime, logging, requests, timedelta):
 
     def fetch_all_activities(days_ahead=5):
         today = datetime.now().date()
-        dates = [
-            (today + timedelta(days=i)).strftime("%Y-%m-%d")
-            for i in range(days_ahead)
-        ]
+        dates = [(today + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days_ahead)]
         records = []
         for vc in _VENUES:
             venue, court = vc["venue"], vc["court"]
@@ -141,13 +149,13 @@ def _(UTC, datetime, pl):
             {
                 "time_12h": (s := rec.get("starts_at") or {}).get("format_12_hour"),
                 "time_24h": s.get("format_24_hour"),
-                "end_24h":  (e := rec.get("ends_at") or {}).get("format_24_hour"),
-                "date":     rec.get("date"),
-                "spaces":   rec.get("spaces"),
+                "end_24h": (rec.get("ends_at") or {}).get("format_24_hour"),
+                "date": rec.get("date"),
+                "spaces": rec.get("spaces"),
                 "location": rec.get("location"),
-                "timestamp":rec.get("timestamp"),
-                "venue":    rec.get("venue"),
-                "court":    rec.get("court"),
+                "timestamp": rec.get("timestamp"),
+                "venue": rec.get("venue"),
+                "court": rec.get("court"),
             }
             for rec in raw
         ]
@@ -157,16 +165,25 @@ def _(UTC, datetime, pl):
             pl.col("date").str.strptime(pl.Date, "%Y-%m-%d", strict=False).alias("Date"),
             pl.col("spaces").cast(pl.Int64).alias("Spaces"),
             pl.col("location").alias("Venue"),
-            pl.col("timestamp").cast(pl.Int64).map_elements(
+            pl.col("timestamp")
+            .cast(pl.Int64)
+            .map_elements(
                 lambda ts: datetime.fromtimestamp(ts, tz=UTC) if ts is not None else None,
                 return_dtype=pl.Datetime("us", "UTC"),
-            ).cast(pl.Datetime("us")).alias("Scraped At"),
+            )
+            .cast(pl.Datetime("us"))
+            .alias("Scraped At"),
             (
                 pl.lit("https://bookings.better.org.uk/location/")
-                + pl.col("venue") + pl.lit("/")
-                + pl.col("court") + pl.lit("/")
-                + pl.col("date")  + pl.lit("/by-time/slot/")
-                + pl.col("time_24h") + pl.lit("-") + pl.col("end_24h")
+                + pl.col("venue")
+                + pl.lit("/")
+                + pl.col("court")
+                + pl.lit("/")
+                + pl.col("date")
+                + pl.lit("/by-time/slot/")
+                + pl.col("time_24h")
+                + pl.lit("-")
+                + pl.col("end_24h")
             ).alias("URL"),
         )
 
@@ -182,9 +199,9 @@ def _(mo):
 @app.cell
 def _(fetch_all_activities, refresh_btn, tabularise):
     """Fetch fresh data when the button is clicked."""
-    fresh_df   = None
+    fresh_df = None
     fetch_error = None
-    if refresh_btn.value > 0:
+    if refresh_btn.value:
         try:
             fresh_df = tabularise(fetch_all_activities())
         except Exception as err:
@@ -195,7 +212,7 @@ def _(fetch_all_activities, refresh_btn, tabularise):
 @app.cell
 def _(cache, json, pl):
     """Parse the localStorage cache into a DataFrame."""
-    cached_df   = None
+    cached_df = None
     cache_error = None
     raw_json = cache.value.get("cached_json", "")
     if raw_json:
@@ -246,24 +263,21 @@ def _(cached_df, fresh_df, pl):
             .rename({"Spaces_prev": "Prev Spaces"})
             .with_columns(pl.lit("🟡 changed").alias("Change"))
         )
-        diff_df = (
-            pl.concat(
-                [
-                    added.select(keys + ["Spaces", "Prev Spaces", "Change"]),
-                    removed.select(keys + ["Spaces", "Prev Spaces", "Change"]),
-                    changed.select(keys + ["Spaces", "Prev Spaces", "Change"]),
-                ],
-                how="diagonal",
-            )
-            .sort(["Date", "Time", "Venue"])
-        )
+        diff_df = pl.concat(
+            [
+                added.select(keys + ["Spaces", "Prev Spaces", "Change"]),
+                removed.select(keys + ["Spaces", "Prev Spaces", "Change"]),
+                changed.select(keys + ["Spaces", "Prev Spaces", "Change"]),
+            ],
+            how="diagonal",
+        ).sort(["Date", "Time", "Venue"])
     return (diff_df,)
 
 
 @app.cell
 def _(fresh_df, json, refresh_btn, store):
     """Persist fresh data to localStorage after a successful fetch (side-effect)."""
-    if refresh_btn.value > 0 and fresh_df is not None and not fresh_df.is_empty():
+    if refresh_btn.value and fresh_df is not None and not fresh_df.is_empty():
         store.data_to_save = json.dumps(fresh_df.to_dicts(), default=str)
     return
 
@@ -281,10 +295,12 @@ def _(cache, cache_error, fetch_error, mo, refresh_btn):
         if cached_ts
         else mo.md("_No cache yet — press Refresh_")
     )
-    mo.vstack([
-        mo.md("# 🎾 Tennis Court Availability"),
-        mo.hstack([refresh_btn, status_md], align="center"),
-    ])
+    mo.vstack(
+        [
+            mo.md("# 🎾 Tennis Court Availability"),
+            mo.hstack([refresh_btn, status_md], align="center"),
+        ]
+    )
     return
 
 
@@ -292,25 +308,22 @@ def _(cache, cache_error, fetch_error, mo, refresh_btn):
 def _(cached_df, diff_df, fresh_df, mo, pl):
     """Summary stats row."""
     display_df = fresh_df if fresh_df is not None else cached_df
-    n_slots    = display_df.height if display_df is not None else 0
-    n_avail    = (
-        display_df.filter(pl.col("Spaces").fill_null(0) > 0).height
-        if display_df is not None
-        else 0
+    n_slots = display_df.height if display_df is not None else 0
+    n_avail = (
+        display_df.filter(pl.col("Spaces").fill_null(0) > 0).height if display_df is not None else 0
     )
-    n_venues   = (
-        display_df["Venue"].drop_nulls().n_unique()
-        if display_df is not None
-        else 0
-    )
-    n_changes  = diff_df.height if diff_df is not None else 0
+    n_venues = display_df["Venue"].drop_nulls().n_unique() if display_df is not None else 0
+    n_changes = diff_df.height if diff_df is not None else 0
 
-    mo.hstack([
-        mo.stat(value=str(n_slots),   label="Total slots",   caption="fresh or cached"),
-        mo.stat(value=str(n_avail),   label="Available",     caption="spaces > 0"),
-        mo.stat(value=str(n_venues),  label="Venues",        caption="unique"),
-        mo.stat(value=str(n_changes), label="Changes",       caption="vs cached"),
-    ], justify="start")
+    mo.hstack(
+        [
+            mo.stat(value=str(n_slots), label="Total slots", caption="fresh or cached"),
+            mo.stat(value=str(n_avail), label="Available", caption="spaces > 0"),
+            mo.stat(value=str(n_venues), label="Venues", caption="unique"),
+            mo.stat(value=str(n_changes), label="Changes", caption="vs cached"),
+        ],
+        justify="start",
+    )
     return
 
 
@@ -332,14 +345,17 @@ def _(cached_df, diff_df, fresh_df, mo):
             return mo.md("_No differences detected_")
         return mo.ui.table(df, show_column_summaries=False)
 
-    mo.ui.tabs({
-        f"📦 Cache ({cached_df.height if cached_df is not None else 0})":
-            _slot_table(cached_df, "cached data"),
-        f"🆕 Fresh ({fresh_df.height if fresh_df is not None else 0})":
-            _slot_table(fresh_df, "fresh data — press Refresh"),
-        f"🔀 Diff ({diff_df.height if diff_df is not None else 0})":
-            _diff_table(diff_df),
-    })
+    mo.ui.tabs(
+        {
+            f"📦 Cache ({cached_df.height if cached_df is not None else 0})": _slot_table(
+                cached_df, "cached data"
+            ),
+            f"🆕 Fresh ({fresh_df.height if fresh_df is not None else 0})": _slot_table(
+                fresh_df, "fresh data — press Refresh"
+            ),
+            f"🔀 Diff ({diff_df.height if diff_df is not None else 0})": _diff_table(diff_df),
+        }
+    )
     return
 
 

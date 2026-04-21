@@ -14,11 +14,12 @@ def _():
     import traitlets
 
     import marimo as mo
-    import pandas as pd
+    import polars as pl
 
-    from poll import fetch_all_activities, tabularise
+    from tennis_app.fetch import fetch_all_activities
+    from tennis_app.transform import tabularise
 
-    return anywidget, fetch_all_activities, json, mo, pd, tabularise, traitlets
+    return anywidget, fetch_all_activities, json, mo, pl, tabularise, traitlets
 
 
 @app.cell
@@ -26,8 +27,8 @@ def _(anywidget, traitlets):
     class LocalStorageCache(anywidget.AnyWidget):
         """Bidirectional localStorage bridge via anywidget.
 
-        JS → Python (on page load): cached_json, cached_ts
-        Python → JS (after fresh fetch): data_to_save triggers a write
+        JS -> Python (on page load): cached_json, cached_ts
+        Python -> JS (after fresh fetch): data_to_save triggers a write
         """
 
         _esm = """
@@ -79,13 +80,23 @@ def _(mo):
 
 
 @app.cell
-def _(cache, fetch_all_activities, json, pd, refresh_btn, tabularise):
+def _(cache, fetch_all_activities, json, pl, refresh_btn, tabularise):
     """Fetch from API on button click, otherwise restore from localStorage."""
-    _EMPTY = pd.DataFrame(
-        columns=["Time", "Date", "Spaces", "Venue", "Venue Size", "Age", "Scraped At", "URL"]
-    )
+    _SCHEMA = {
+        "Time": pl.Utf8,
+        "Date": pl.Date,
+        "Spaces": pl.Int64,
+        "Venue": pl.Utf8,
+        "Venue Size": pl.Utf8,
+        "Age": pl.Utf8,
+        "Scraped At": pl.Datetime,
+        "URL": pl.Utf8,
+    }
+    _EMPTY = pl.DataFrame(schema=_SCHEMA)
+
     _df = None
     _error = None
+    _cache_error = None
     _is_fresh = False
 
     if refresh_btn.value > 0:
@@ -95,16 +106,23 @@ def _(cache, fetch_all_activities, json, pd, refresh_btn, tabularise):
         except Exception as _e:
             _error = str(_e)
 
-    _cache_error = None
     if _df is None and cache.cached_json:
         try:
             _records = json.loads(cache.cached_json)
-            _df = pd.DataFrame(_records)
-            if not _df.empty:
+            if _records:
+                _df = pl.from_dicts(_records, schema_overrides={"Spaces": pl.Int64})
                 if "Date" in _df.columns:
-                    _df["Date"] = pd.to_datetime(_df["Date"], errors="coerce").dt.date
+                    _df = _df.with_columns(
+                        pl.col("Date").cast(pl.Utf8).str.to_date(strict=False)
+                    )
                 if "Scraped At" in _df.columns:
-                    _df["Scraped At"] = pd.to_datetime(_df["Scraped At"], errors="coerce")
+                    _df = _df.with_columns(
+                        pl.col("Scraped At")
+                        .cast(pl.Utf8)
+                        .str.to_datetime(strict=False)
+                    )
+            else:
+                _df = _EMPTY
         except Exception as _ce:
             _df = None
             _cache_error = f"Cached data could not be read ({_ce}); press Refresh to reload."
@@ -119,10 +137,8 @@ def _(cache, fetch_all_activities, json, pd, refresh_btn, tabularise):
 @app.cell
 def _(cache, current_df, is_fresh, json):
     """Persist fresh API data to localStorage (side-effect only, no output)."""
-    if is_fresh and not current_df.empty:
-        cache.data_to_save = json.dumps(
-            current_df.to_dict(orient="records"), default=str
-        )
+    if is_fresh and not current_df.is_empty():
+        cache.data_to_save = json.dumps(current_df.to_dicts(), default=str)
     return
 
 
@@ -151,17 +167,19 @@ def _(cache, cache_error, fetch_error, mo, refresh_btn):
 
 
 @app.cell
-def _(current_df, mo):
-    """Colour-coded availability grid: venues × dates."""
-    if current_df.empty:
+def _(current_df, mo, pl):
+    """Colour-coded availability grid: venues x dates."""
+    if current_df.is_empty():
         mo.md("_No data yet._")
     else:
-        _df = current_df[current_df["Date"].notna() & current_df["Time"].notna()].copy()
-        if _df.empty:
+        _df = current_df.filter(
+            pl.col("Date").is_not_null() & pl.col("Time").is_not_null()
+        )
+        if _df.is_empty():
             mo.md("_No data with valid Date/Time fields._")
         else:
-            _dates = sorted(_df["Date"].unique())
-            _venues = sorted(_df["Venue"].dropna().unique())
+            _dates = sorted(_df["Date"].unique().to_list())
+            _venues = sorted(_df["Venue"].drop_nulls().unique().to_list())
 
             _th = "".join(
                 f"<th style='padding:6px 10px;background:#1a1a2e;color:#eee;"
@@ -179,9 +197,11 @@ def _(current_df, mo):
                     f"white-space:nowrap;font-size:.85rem'>{_v}</td>"
                 ]
                 for _d in _dates:
-                    _slot = _df[(_df["Venue"] == _v) & (_df["Date"] == _d)]
-                    _avail = int(_slot["Spaces"].fillna(0).sum())
-                    _total = len(_slot)
+                    _slot = _df.filter(
+                        (pl.col("Venue") == _v) & (pl.col("Date") == _d)
+                    )
+                    _avail = int(_slot["Spaces"].fill_null(0).sum())
+                    _total = _slot.height
                     if _total == 0:
                         _bg, _fg, _lbl = "#e0e0e0", "#888", "—"
                     elif _avail == 0:
@@ -207,37 +227,37 @@ def _(current_df, mo):
 
 
 @app.cell
-def _(current_df, mo):
+def _(current_df, mo, pl):
     """Venue filter dropdown (always exported so the table cell can depend on it)."""
     _opts = ["All"]
-    if not current_df.empty:
-        _avail = current_df[current_df["Spaces"].fillna(0) > 0]
-        _opts += sorted(_avail["Venue"].dropna().unique().tolist())
+    if not current_df.is_empty():
+        _avail = current_df.filter(pl.col("Spaces").fill_null(0) > 0)
+        _opts += sorted(_avail["Venue"].drop_nulls().unique().to_list())
 
     venue_filter = mo.ui.dropdown(options=_opts, value="All", label="Filter by venue")
 
-    if not current_df.empty:
+    if not current_df.is_empty():
         venue_filter  # display only when there is data
     return (venue_filter,)
 
 
 @app.cell
-def _(current_df, mo, venue_filter):
+def _(current_df, mo, pl, venue_filter):
     """Detailed slots table with booking links."""
-    if current_df.empty:
+    if current_df.is_empty():
         mo.md("_Press **Refresh** to fetch live data._")
     else:
-        _avail = current_df[current_df["Spaces"].fillna(0) > 0].copy()
+        _avail = current_df.filter(pl.col("Spaces").fill_null(0) > 0)
         if venue_filter.value != "All":
-            _avail = _avail[_avail["Venue"] == venue_filter.value]
-        _avail = _avail.sort_values(["Date", "Time"]).reset_index(drop=True)
+            _avail = _avail.filter(pl.col("Venue") == venue_filter.value)
+        _avail = _avail.sort(["Date", "Time"])
 
-        if _avail.empty:
+        if _avail.is_empty():
             mo.md("_No available slots match the current filter._")
         else:
             _rows = []
-            for _, _r in _avail.iterrows():
-                _spaces = int(_r["Spaces"]) if _r["Spaces"] else 0
+            for _r in _avail.to_dicts():
+                _spaces = _r.get("Spaces") or 0
                 _sbg = "#c8e6c9" if _spaces > 2 else "#fff9c4"
                 _url = _r.get("URL")
                 _book = (
@@ -248,9 +268,9 @@ def _(current_df, mo, venue_filter):
                 )
                 _rows.append(
                     "<tr>"
-                    f"<td style='padding:8px 10px'>{_r['Date'] or '—'}</td>"
-                    f"<td style='padding:8px 10px'>{_r['Time'] or '—'}</td>"
-                    f"<td style='padding:8px 10px;font-size:.8rem'>{_r['Venue'] or '—'}</td>"
+                    f"<td style='padding:8px 10px'>{_r.get('Date') or '—'}</td>"
+                    f"<td style='padding:8px 10px'>{_r.get('Time') or '—'}</td>"
+                    f"<td style='padding:8px 10px;font-size:.8rem'>{_r.get('Venue') or '—'}</td>"
                     f"<td style='padding:8px 10px;text-align:center;"
                     f"background:{_sbg};font-weight:600'>{_spaces}</td>"
                     f"<td style='padding:8px 10px;text-align:center'>{_book}</td>"

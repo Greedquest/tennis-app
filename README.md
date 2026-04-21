@@ -2,6 +2,19 @@
 
 A Python application for polling tennis court availability and sending email notifications via Gmail.
 
+## Dashboard
+
+View court availability on demand in your browser — no server required.
+
+[![Open in MoLab](https://marimo.io/shield.svg)](https://marimo.io/p/@greedquest/tennis-app)
+
+Run locally with:
+
+```sh
+pip install marimo anywidget polars requests
+marimo run dashboard.py
+```
+
 ## Pre-commit Hooks
 
 This project uses [pre-commit](https://pre-commit.com/) and [pre-commit.ci](https://pre-commit.ci/) for automatic code quality checks and fixes.

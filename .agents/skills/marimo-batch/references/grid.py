@@ -38,7 +38,6 @@ from dotenv import load_dotenv
 # module docstring above. Replace this with your provider of choice.
 from huggingface_hub import run_uv_job
 
-
 PROJECT_DIR = Path(__file__).resolve().parent
 NOTEBOOK_PATH = PROJECT_DIR / "starting-point.py"
 
@@ -78,11 +77,7 @@ def format_value(value: object) -> str:
 
 
 def build_run_name(params: dict[str, str]) -> str:
-    return (
-        f"e{params['epochs']}"
-        f"-bs{params['batch_size']}"
-        f"-lr{params['learning_rate']}"
-    )
+    return f"e{params['epochs']}-bs{params['batch_size']}-lr{params['learning_rate']}"
 
 
 def sample_runs(count: int, rng: random.Random) -> list[dict[str, str]]:
@@ -122,7 +117,7 @@ def print_run(index: int, total: int, params: dict[str, str]) -> None:
     print(f"[{index}/{total}] {params['wandb_run_name']}")
     print(f"  flavor: {FLAVOR}")
     print(f"  timeout: {TIMEOUT}")
-    print(f"  args: {' '.join(shlex.quote(arg) for arg in cli_args)}")
+    print(f"  args: {shlex.join(cli_args)}")
 
 
 def load_secrets() -> dict[str, str]:
@@ -183,8 +178,7 @@ def main() -> None:
     secrets = load_secrets() if args.launch else None
 
     print(
-        f"Randomized grid search with {len(runs)} runs "
-        f"(requested={args.count}, seed={args.seed})"
+        f"Randomized grid search with {len(runs)} runs (requested={args.count}, seed={args.seed})"
     )
     print(f"Notebook: {NOTEBOOK_PATH.name}")
     print(f"Flavor: {FLAVOR}")

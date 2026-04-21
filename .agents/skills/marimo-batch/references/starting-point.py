@@ -50,8 +50,9 @@ def _(env_config, is_script_mode, wandb):
 
 @app.cell
 def _(ModelParams, mo, wandb):
-    from wigglystuff import EnvConfig
     import sys
+
+    from wigglystuff import EnvConfig
 
     is_script_mode = mo.app_meta().mode == "script"
 
@@ -112,8 +113,8 @@ def _(params_form):
 def _():
     import hashlib
     import json
-    from pydantic import computed_field, BaseModel, Field
 
+    from pydantic import BaseModel, Field, computed_field
 
     class ModelParams(BaseModel):
         epochs: int = Field(default=25, description="Number of training epochs.")

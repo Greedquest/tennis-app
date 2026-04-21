@@ -39,4 +39,3 @@ Read the generated `.py` file and apply the following improvements:
 - If the notebook contains LaTeX, see `references/latex.md` for how to port MathJax syntax to KaTeX (which marimo uses).
 
 4. **Run `marimo check` again** after your edits to confirm nothing was broken.
-

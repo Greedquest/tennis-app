@@ -49,7 +49,7 @@ jobs:
           EMAIL_TO:   ${{ secrets.EMAIL_TO }}
           APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
         run: |
-          python -m poll
+          python -m tennis_app
 
       # Save a new cache (immutable) so the next run can restore the latest via prefix
       - name: Save cached state for next run

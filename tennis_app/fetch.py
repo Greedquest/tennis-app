@@ -90,8 +90,7 @@ def fetch_all_activities(
 
     if fetch_errors and not all_records:
         raise RuntimeError(
-            f"All {len(fetch_errors)} fetch attempt(s) failed. "
-            f"First error: {fetch_errors[0]}"
+            f"All {len(fetch_errors)} fetch attempt(s) failed. First error: {fetch_errors[0]}"
         )
 
     if fetch_errors:

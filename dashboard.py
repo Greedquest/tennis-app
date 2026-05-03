@@ -231,6 +231,11 @@ def _(
     """Header, refresh button, and status line."""
     if fetch_error:
         _status = mo.callout(mo.md(f"⚠️ Fetch error: {fetch_error}"), kind="warn")
+    elif fresh_df is not None and fresh_df.is_empty():
+        _status = mo.callout(
+            mo.md("⚠️ Refreshed — **0** slots returned (API may be unreachable or rate-limiting)"),
+            kind="warn",
+        )
     elif fresh_df is not None:
         _status = mo.callout(
             mo.md(f"✅ Refreshed — **{fresh_df.height}** slots loaded"), kind="success"

@@ -63,6 +63,8 @@ def fetch_all_activities(
     dates = [(today + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days_ahead)]
 
     all_records: list[dict[str, Any]] = []
+    fetch_errors: list[str] = []
+
     for venue_court in venues:
         venue = venue_court["venue"]
         court = venue_court["court"]
@@ -81,6 +83,21 @@ def fetch_all_activities(
 
             except Exception as e:
                 logging.warning("Failed to fetch %s/%s for %s: %s", venue, court, date, e)
+                fetch_errors.append(f"{venue}/{court} for {date}: {e}")
                 continue
+
+    total_attempts = len(venues) * len(dates)
+
+    if fetch_errors and not all_records:
+        raise RuntimeError(
+            f"All {len(fetch_errors)} fetch attempt(s) failed. First error: {fetch_errors[0]}"
+        )
+
+    if fetch_errors:
+        logging.warning(
+            "%d of %d fetch attempts failed; returning partial results.",
+            len(fetch_errors),
+            total_attempts,
+        )
 
     return all_records

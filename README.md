@@ -6,7 +6,7 @@ A Python application for polling tennis court availability and sending email not
 
 View court availability on demand in your browser — no server required.
 
-<a href="https://molab.marimo.io/github/Greedquest/tennis-app/blob/copilot/add-marimo-notebook-for-mobile/dashboard.py/wasm"><img src="https://marimo.io/molab-shield.svg" alt="Open in MoLab"></a>
+<a href="https://molab.marimo.io/github/Greedquest/tennis-app/blob/main/dashboard.py/wasm"><img src="https://marimo.io/molab-shield.svg" alt="Open in MoLab"></a>
 
 Run locally with:
 

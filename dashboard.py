@@ -18,6 +18,7 @@ app = marimo.App(width="medium")
 def _():
     import json
     import logging
+    import sys
     from datetime import UTC, datetime, timedelta
 
     import anywidget
@@ -25,6 +26,14 @@ def _():
     import polars as pl
     import requests
     import traitlets
+
+    # In WASM (Pyodide / molab), the `requests` library uses TCP sockets which
+    # are unavailable in the browser.  pyodide-http patches requests to use the
+    # browser's native fetch API instead, fixing "Failed to fetch" errors.
+    if sys.platform == "emscripten":
+        import pyodide_http
+
+        pyodide_http.patch_all()
 
     return (
         UTC,

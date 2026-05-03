@@ -37,6 +37,8 @@ repos:
       - id: mypy
         additional_dependencies:
           - types-requests
+          - anywidget
+          - traitlets
         args: [--ignore-missing-imports]
 
   # Bandit security linter

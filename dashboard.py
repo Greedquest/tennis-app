@@ -17,36 +17,54 @@ app = marimo.App(width="medium")
 @app.cell
 def _():
     import json
-    import logging
     import sys
-    from datetime import UTC, datetime, timedelta
 
     import anywidget
     import marimo as mo
     import polars as pl
-    import requests
     import traitlets
 
-    # In WASM (Pyodide / molab), the `requests` library uses TCP sockets which
-    # are unavailable in the browser.  pyodide-http patches requests to use the
-    # browser's native fetch API instead, fixing "Failed to fetch" errors.
+    # In WASM (Pyodide / molab), requests uses TCP sockets which don't exist in
+    # the browser.  pyodide-http patches requests to use the browser's native
+    # fetch API — this must run before tennis_app is imported.
     if sys.platform == "emscripten":
         import pyodide_http
 
         pyodide_http.patch_all()
 
-    return (
-        UTC,
-        anywidget,
-        datetime,
-        json,
-        logging,
-        mo,
-        pl,
-        requests,
-        timedelta,
-        traitlets,
-    )
+    return anywidget, json, mo, pl, sys, traitlets
+
+
+@app.cell
+def _(sys):
+    """Import business logic from tennis_app; provide stubs when unavailable (WASM)."""
+    is_wasm = sys.platform == "emscripten"
+
+    try:
+        from tennis_app.cache import load_prev_rows
+        from tennis_app.config import CACHE_STATE_PATH
+        from tennis_app.fetch import fetch_all_activities
+        from tennis_app.transform import tabularise
+    except ImportError:
+        # tennis_app is a local package unavailable in WASM (molab).
+        # Cached data from localStorage is still displayed; Refresh is disabled.
+        import polars as _pl
+
+        CACHE_STATE_PATH = "cache/state.json"
+
+        def fetch_all_activities(**_kw):
+            raise RuntimeError(
+                "tennis_app is not installed — "
+                "run `marimo run dashboard.py` from the repository root."
+            )
+
+        def tabularise(_raw):
+            return _pl.DataFrame()
+
+        def load_prev_rows(_path):
+            return _pl.DataFrame()
+
+    return CACHE_STATE_PATH, fetch_all_activities, is_wasm, load_prev_rows, tabularise
 
 
 @app.cell
@@ -103,103 +121,6 @@ def _(LocalStorageWidget, mo):
 
 
 @app.cell
-def _(datetime, logging, requests, timedelta):
-    _VENUES = [
-        {"venue": "islington-tennis-centre", "court": "tennis-court-indoor"},
-        {"venue": "islington-tennis-centre", "court": "tennis-court-outdoor"},
-    ]
-
-    def fetch_all_activities(days_ahead=5):
-        today = datetime.now().date()
-        dates = [(today + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days_ahead)]
-        records = []
-        for vc in _VENUES:
-            venue, court = vc["venue"], vc["court"]
-            for date in dates:
-                try:
-                    r = requests.get(
-                        f"https://better-admin.org.uk/api/activities/venue"
-                        f"/{venue}/activity/{court}/times",
-                        headers={
-                            "Origin": "https://bookings.better.org.uk",
-                            "User-Agent": "Mozilla/5.0 Chrome/120.0.0.0",
-                            "Referer": "https://bookings.better.org.uk/",
-                        },
-                        params={"date": date},
-                        timeout=15,
-                    )
-                    r.raise_for_status()
-                    for act in r.json().get("data", []):
-                        if isinstance(act, dict):
-                            act["venue"] = venue
-                            act["court"] = court
-                            records.append(act)
-                except Exception as e:
-                    logging.warning("Failed %s/%s %s: %s", venue, court, date, e)
-        return records
-
-    return (fetch_all_activities,)
-
-
-@app.cell
-def _(UTC, datetime, pl):
-    def tabularise(raw):
-        schema = {
-            "Time": pl.Utf8,
-            "Date": pl.Date,
-            "Spaces": pl.Int64,
-            "Venue": pl.Utf8,
-            "Scraped At": pl.Datetime,
-            "URL": pl.Utf8,
-        }
-        if not raw:
-            return pl.DataFrame(schema=schema)
-        flat = [
-            {
-                "time_12h": (s := rec.get("starts_at") or {}).get("format_12_hour"),
-                "time_24h": s.get("format_24_hour"),
-                "end_24h": (rec.get("ends_at") or {}).get("format_24_hour"),
-                "date": rec.get("date"),
-                "spaces": rec.get("spaces"),
-                "location": rec.get("location"),
-                "timestamp": rec.get("timestamp"),
-                "venue": rec.get("venue"),
-                "court": rec.get("court"),
-            }
-            for rec in raw
-        ]
-        df = pl.DataFrame(flat)
-        return df.select(
-            pl.col("time_12h").alias("Time"),
-            pl.col("date").str.strptime(pl.Date, "%Y-%m-%d", strict=False).alias("Date"),
-            pl.col("spaces").cast(pl.Int64).alias("Spaces"),
-            pl.col("location").alias("Venue"),
-            pl.col("timestamp")
-            .cast(pl.Int64)
-            .map_elements(
-                lambda ts: datetime.fromtimestamp(ts, tz=UTC) if ts is not None else None,
-                return_dtype=pl.Datetime("us", "UTC"),
-            )
-            .cast(pl.Datetime("us"))
-            .alias("Scraped At"),
-            (
-                pl.lit("https://bookings.better.org.uk/location/")
-                + pl.col("venue")
-                + pl.lit("/")
-                + pl.col("court")
-                + pl.lit("/")
-                + pl.col("date")
-                + pl.lit("/by-time/slot/")
-                + pl.col("time_24h")
-                + pl.lit("-")
-                + pl.col("end_24h")
-            ).alias("URL"),
-        )
-
-    return (tabularise,)
-
-
-@app.cell
 def _(mo):
     refresh_btn = mo.ui.button(label="🔄 Refresh", kind="success")
     return (refresh_btn,)
@@ -207,7 +128,7 @@ def _(mo):
 
 @app.cell
 def _(fetch_all_activities, refresh_btn, tabularise):
-    """Fetch fresh data when the button is clicked."""
+    """Fetch fresh data from the API when the button is clicked."""
     fresh_df = None
     fetch_error = None
     if refresh_btn.value:
@@ -219,26 +140,37 @@ def _(fetch_all_activities, refresh_btn, tabularise):
 
 
 @app.cell
-def _(cache, json, pl):
-    """Parse the localStorage cache into a DataFrame."""
+def _(CACHE_STATE_PATH, cache, is_wasm, json, load_prev_rows, pl):
+    """Load previously-saved state: action cache file (local) or localStorage (WASM)."""
     cached_df = None
     cache_error = None
-    raw_json = cache.value.get("cached_json", "")
-    if raw_json:
+
+    if is_wasm:
+        # WASM (molab): read from browser localStorage (set by a previous Refresh)
+        raw_json = cache.value.get("cached_json", "")
+        if raw_json:
+            try:
+                rows = json.loads(raw_json)
+                if rows:
+                    cached_df = pl.from_dicts(rows, schema_overrides={"Spaces": pl.Int64})
+                    if "Date" in cached_df.columns:
+                        cached_df = cached_df.with_columns(
+                            pl.col("Date").cast(pl.Utf8).str.to_date(strict=False)
+                        )
+                    if "Scraped At" in cached_df.columns:
+                        cached_df = cached_df.with_columns(
+                            pl.col("Scraped At").cast(pl.Utf8).str.to_datetime(strict=False)
+                        )
+            except Exception as err:
+                cache_error = f"Cache unreadable ({err}) — press Refresh to reload."
+    else:
+        # Local: read the JSON state file written by the GitHub Actions poller
         try:
-            rows = json.loads(raw_json)
-            if rows:
-                cached_df = pl.from_dicts(rows, schema_overrides={"Spaces": pl.Int64})
-                if "Date" in cached_df.columns:
-                    cached_df = cached_df.with_columns(
-                        pl.col("Date").cast(pl.Utf8).str.to_date(strict=False)
-                    )
-                if "Scraped At" in cached_df.columns:
-                    cached_df = cached_df.with_columns(
-                        pl.col("Scraped At").cast(pl.Utf8).str.to_datetime(strict=False)
-                    )
+            loaded = load_prev_rows(CACHE_STATE_PATH)
+            cached_df = loaded if not loaded.is_empty() else None
         except Exception as err:
-            cache_error = f"Cache unreadable ({err}) — press Refresh to reload."
+            cache_error = f"Could not read {CACHE_STATE_PATH}: {err}"
+
     return cache_error, cached_df
 
 
@@ -284,30 +216,31 @@ def _(cached_df, fresh_df, pl):
 
 
 @app.cell
-def _(fresh_df, json, refresh_btn, store):
-    """Persist fresh data to localStorage after a successful fetch (side-effect)."""
-    if refresh_btn.value and fresh_df is not None and not fresh_df.is_empty():
+def _(fresh_df, is_wasm, json, refresh_btn, store):
+    """Persist fresh data to localStorage after a successful fetch (WASM only)."""
+    if is_wasm and refresh_btn.value and fresh_df is not None and not fresh_df.is_empty():
         store.data_to_save = json.dumps(fresh_df.to_dicts(), default=str)
     return
 
 
 @app.cell
-def _(cache, cache_error, fetch_error, mo, refresh_btn):
+def _(CACHE_STATE_PATH, cache, cache_error, cached_df, fetch_error, is_wasm, mo, refresh_btn):
     """Header, refresh button, and status line."""
-    cached_ts = cache.value.get("cached_ts", "")
-    status_md = (
-        mo.callout(mo.md(f"⚠️ Fetch error: {fetch_error}"), kind="warn")
-        if fetch_error
-        else mo.callout(mo.md(f"⚠️ {cache_error}"), kind="warn")
-        if cache_error
-        else mo.md(f"🕒 Cached: **{cached_ts}**")
-        if cached_ts
-        else mo.md("_No cache yet — press Refresh_")
-    )
+    if fetch_error:
+        _status = mo.callout(mo.md(f"⚠️ Fetch error: {fetch_error}"), kind="warn")
+    elif cache_error:
+        _status = mo.callout(mo.md(f"⚠️ {cache_error}"), kind="warn")
+    elif is_wasm:
+        _ts = cache.value.get("cached_ts", "")
+        _status = mo.md(f"🕒 Cached: **{_ts}**") if _ts else mo.md("_No cache yet — press Refresh_")
+    elif cached_df is not None:
+        _status = mo.md(f"📁 Cache loaded from `{CACHE_STATE_PATH}`")
+    else:
+        _status = mo.md(f"_No cache at `{CACHE_STATE_PATH}` — run the poller first_")
     mo.vstack(
         [
             mo.md("# 🎾 Tennis Court Availability"),
-            mo.hstack([refresh_btn, status_md], align="center"),
+            mo.hstack([refresh_btn, _status], align="center"),
         ]
     )
     return

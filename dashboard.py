@@ -123,7 +123,7 @@ def _(LocalStorageWidget, mo):
 
 @app.cell
 def _(mo):
-    refresh_btn = mo.ui.button(label="🔄 Refresh", kind="success")
+    refresh_btn = mo.ui.run_button(label="🔄 Refresh", kind="success")
     return (refresh_btn,)
 
 
@@ -225,10 +225,12 @@ def _(fresh_df, is_wasm, json, refresh_btn, store):
 
 
 @app.cell
-def _(CACHE_STATE_PATH, cache, cache_error, cached_df, fetch_error, is_wasm, mo, refresh_btn):
+def _(CACHE_STATE_PATH, cache, cache_error, cached_df, fetch_error, fresh_df, is_wasm, mo, refresh_btn):
     """Header, refresh button, and status line."""
     if fetch_error:
         _status = mo.callout(mo.md(f"⚠️ Fetch error: {fetch_error}"), kind="warn")
+    elif fresh_df is not None:
+        _status = mo.callout(mo.md(f"✅ Refreshed — **{fresh_df.height}** slots loaded"), kind="success")
     elif cache_error:
         _status = mo.callout(mo.md(f"⚠️ {cache_error}"), kind="warn")
     elif is_wasm:

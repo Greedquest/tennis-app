@@ -86,6 +86,8 @@ def fetch_all_activities(
                 fetch_errors.append(f"{venue}/{court} for {date}: {e}")
                 continue
 
+    total_attempts = len(venues) * len(dates)
+
     if fetch_errors and not all_records:
         raise RuntimeError(
             f"All {len(fetch_errors)} fetch attempt(s) failed. "
@@ -96,7 +98,7 @@ def fetch_all_activities(
         logging.warning(
             "%d of %d fetch attempts failed; returning partial results.",
             len(fetch_errors),
-            len(fetch_errors) + len(all_records),
+            total_attempts,
         )
 
     return all_records

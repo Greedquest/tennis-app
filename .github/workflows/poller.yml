@@ -2,6 +2,8 @@
 name: Poller
 
 on:
+  schedule:
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 # prevent overlap

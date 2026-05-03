@@ -1,0 +1,21 @@
+# Configuration for GitHub Copilot Cloud Agent
+# This file allows Copilot to access external domains needed for this project
+
+# Domain access rules
+# Allow access to marimo.io domains for molab (marimo cloud playground)
+domain_access:
+  # molab.marimo.io - the marimo cloud playground where notebooks are hosted
+  - domain: molab.marimo.io
+    description: "Marimo cloud playground (molab) - needed to access and debug marimo notebooks"
+
+  # marimo.io - main marimo website and CDN resources
+  - domain: marimo.io
+    description: "Marimo main website and resources"
+
+  # better-admin.org.uk - tennis court booking API (already used in dashboard.py)
+  - domain: better-admin.org.uk
+    description: "Tennis court availability API endpoint"
+
+  # bookings.better.org.uk - tennis court booking website (referenced in dashboard.py)
+  - domain: bookings.better.org.uk
+    description: "Tennis court booking website"

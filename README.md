@@ -15,6 +15,15 @@ pip install marimo anywidget polars requests
 marimo run dashboard.py
 ```
 
+## GitHub Copilot Configuration
+
+This repository includes configuration for GitHub Copilot Cloud Agent to access external domains:
+
+- **`.github/agents/copilot-setup-steps.yml`**: Grants Copilot access to marimo.io domains (molab playground) and tennis court booking APIs. This allows Copilot to:
+  - Access and debug the marimo notebook on molab
+  - Fetch tennis court availability data
+  - Resolve "failed to fetch wire" errors when accessing molab links
+
 ## Pre-commit Hooks
 
 This project uses [pre-commit](https://pre-commit.com/) and [pre-commit.ci](https://pre-commit.ci/) for automatic code quality checks and fixes.

@@ -52,16 +52,17 @@ def _(sys):
 
         CACHE_STATE_PATH = "cache/state.json"
 
-        def fetch_all_activities(**_kw):
+        def fetch_all_activities(**kwargs):  # noqa: ARG001
             raise RuntimeError(
-                "tennis_app is not installed — "
-                "run `marimo run dashboard.py` from the repository root."
+                "Refresh requires local execution — "
+                "tennis_app is not available in WASM (molab). "
+                "Run `marimo run dashboard.py` from the repository root."
             )
 
-        def tabularise(_raw):
+        def tabularise(raw):  # noqa: ARG001
             return _pl.DataFrame()
 
-        def load_prev_rows(_path):
+        def load_prev_rows(path):  # noqa: ARG001
             return _pl.DataFrame()
 
     return CACHE_STATE_PATH, fetch_all_activities, is_wasm, load_prev_rows, tabularise

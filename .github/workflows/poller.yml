@@ -20,12 +20,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # Restore previous state from the newest cache that matches the prefix
       - name: Restore cached state
         id: cache-restore
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: cache
           key: state-${{ runner.os }}-${{ github.run_id }}         # unique per run (forces save)
@@ -55,7 +55,7 @@ jobs:
 
       # Save a new cache (immutable) so the next run can restore the latest via prefix
       - name: Save cached state for next run
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: cache
           key: state-${{ runner.os }}-${{ github.run_id }}

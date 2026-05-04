@@ -16,6 +16,11 @@
       "sourceType": "github",
       "computedHash": "edba11eee233e8e7433a8d0b38798b1da0785eb8363028c1ab28f2c95f026ec8"
     },
+    "grill-me": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "computedHash": "74147eb6010a65957efef2b9e0f0b3ff935c1def7fc117697151b1d0f3610556"
+    },
     "implement-paper": {
       "source": "marimo-team/skills",
       "sourceType": "github",

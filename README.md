@@ -4,7 +4,7 @@ A Python application for polling tennis court availability and sending email not
 
 ## Dashboard
 
-View court availability on demand in your browser — no server required.
+A Marimo notebook has been set up to help debug the app.
 
 <a href="https://molab.marimo.io/github/Greedquest/tennis-app/blob/main/dashboard.py/wasm"><img src="https://marimo.io/molab-shield.svg" alt="Open in MoLab"></a>
 
@@ -28,24 +28,15 @@ This repository includes configuration for GitHub Copilot Cloud Agent to access 
 
 This project uses [pre-commit](https://pre-commit.com/) and [pre-commit.ci](https://pre-commit.ci/) for automatic code quality checks and fixes.
 
-### Enabled Hooks
-
-- **pyupgrade**: Automatically upgrade syntax for Python 3.12+
-- **black**: Code formatting
-- **ruff**: Fast linting (replaces flake8, isort, and more) with auto-fix
-- **mypy**: Type checking
-- **bandit**: Security vulnerability scanning
-- **trailing-whitespace, end-of-file-fixer**: File hygiene
 
 ### Pre-commit.ci Integration
 
 Since this project is edited via the GitHub web interface, [pre-commit.ci](https://pre-commit.ci/) is configured to:
 
-- Automatically run all hooks on every commit
+- Automatically run all hooks on every commit of open prs
 - Auto-fix issues and push fixes back to the branch
 - Weekly automatic updates of hook versions
 
-All code quality checks run automatically - no local setup required!
 
 ### Configuration
 

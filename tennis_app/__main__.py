@@ -17,8 +17,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=str,
         default=None,
         help="Path to a JSON fixture file to use instead of calling the live API. "
-        "The file should contain the raw API response with a top-level 'data' array, "
-        "or a plain JSON array of activity records.",
+        "The file should contain the raw API response with a top-level 'data' key "
+        "(array or object), or a plain JSON array of activity records.",
     )
     p.add_argument(
         "--cache",
@@ -42,9 +42,10 @@ def main(argv: list[str] | None = None) -> int:
         with open(args.fixtures, encoding="utf-8") as f:
             data = json.load(f)
 
-        # Support both {"data": [...]} (raw API response) and plain [...]
+        # Support {"data": [...]} or {"data": {...}} (raw API response) and plain [...]
         if isinstance(data, dict) and "data" in data:
-            raw_records = data["data"]
+            inner = data["data"]
+            raw_records = list(inner.values()) if isinstance(inner, dict) else inner
         elif isinstance(data, list):
             raw_records = data
         else:

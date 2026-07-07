@@ -26,11 +26,14 @@ logging.basicConfig(
 #   * Highbury Fields  (11 floodlit outdoor courts, managed by Islington TC)
 #   * Islington Tennis Centre outdoor
 #
-# NOTE: the Highbury activity slug below is a candidate pending confirmation
-# from a live run (see tennis_app.probe / the "probe" workflow).  This
-# environment cannot reach the booking API, so the slug is verified in CI.
+# Slugs verified in CI (tennis_app.probe): both live under the
+# islington-tennis-centre venue.  "highbury-fields-activities" matches the
+# booking URL bookings.better.org.uk/location/islington-tennis-centre/
+# highbury-fields-activities and returns the same recognised response as the
+# known-good "tennis-court-outdoor" slug (candidates like "highbury-fields" or
+# venue "highbury-fields" 404).
 VENUES = [
-    {"venue": "islington-tennis-centre", "court": "highbury-fields-tennis"},
+    {"venue": "islington-tennis-centre", "court": "highbury-fields-activities"},
     {"venue": "islington-tennis-centre", "court": "tennis-court-outdoor"},
 ]
 

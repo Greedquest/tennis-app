@@ -11,26 +11,34 @@ how many slots came back, plus a sample — so a real slug is obvious from the l
 """
 
 import logging
+import time
 from datetime import datetime, timedelta
 
 from tennis_app.fetch import fetch_activities
 
-# Hypotheses for the two outdoor sites in the brief. The Islington outdoor pair
-# is already known-good and acts as a positive control. The rest are candidates
-# for Highbury Fields, whose booking page lives at
-# bookings.better.org.uk/location/islington-tennis-centre/highbury-fields-activities
+# Candidates for the two outdoor sites in the brief.
+#
+# A prior probe established the error semantics of the times endpoint:
+#   * 404 -> the venue/activity slug does not exist
+#   * 422 -> the venue/activity pair IS recognised (same response the known-good
+#            "tennis-court-outdoor" slug gives); a burst of requests gets throttled
+#   * 200 -> served (n_records may be 0 if nothing is on that date)
+# So "highbury-fields-activities" under islington-tennis-centre (422, matching the
+# booking URL .../location/islington-tennis-centre/highbury-fields-activities) is
+# the leading Highbury candidate, and "islington-parks" is a valid sibling venue.
 CANDIDATES: list[tuple[str, str]] = [
     ("islington-tennis-centre", "tennis-court-outdoor"),  # control (known-good)
-    ("islington-tennis-centre", "highbury-fields-tennis"),
-    ("islington-tennis-centre", "highbury-fields-activities"),
-    ("islington-tennis-centre", "highbury-fields-outdoor-tennis"),
-    ("islington-tennis-centre", "highbury-fields"),
-    ("highbury-fields", "tennis-court-outdoor"),
-    ("highbury-fields", "tennis-court"),
+    ("islington-tennis-centre", "highbury-fields-activities"),  # leading Highbury slug
+    ("islington-parks", "tennis-court-outdoor"),
+    ("islington-parks", "highbury-fields-activities"),
 ]
 
+# Seconds to wait between requests. The API 422s under bursty load, so pace it
+# to get a clean read (the real poller fires only a handful of requests / poll).
+PROBE_DELAY_S = 4.0
 
-def probe(candidates: list[tuple[str, str]] | None = None, days_ahead: int = 3) -> None:
+
+def probe(candidates: list[tuple[str, str]] | None = None, days_ahead: int = 2) -> None:
     candidates = candidates or CANDIDATES
     today = datetime.now().date()
     dates = [(today + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days_ahead)]
@@ -42,10 +50,11 @@ def probe(candidates: list[tuple[str, str]] | None = None, days_ahead: int = 3) 
         total = 0
         sample = ""
         for d in dates:
+            time.sleep(PROBE_DELAY_S)
             try:
                 records = fetch_activities(venue, court, d)
             except Exception as e:  # noqa: BLE001 - report and keep probing
-                logging.info("  %-30s/%-32s %s -> ERROR: %s", venue, court, d, e)
+                logging.info("  %-24s/%-32s %s -> ERROR: %s", venue, court, d, e)
                 continue
             total += len(records)
             if records and not sample:

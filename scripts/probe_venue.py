@@ -82,7 +82,7 @@ def probe(candidates: list[tuple[str, str]], days: int, delay: float) -> list[di
         for date in dates:
             try:
                 r = requests.get(url, headers=HEADERS, params={"date": date}, timeout=15)
-                n_records = None
+                n_records: int | str | None = None
                 sample = None
                 if r.ok:
                     try:

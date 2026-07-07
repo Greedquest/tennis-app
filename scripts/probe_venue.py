@@ -80,6 +80,17 @@ def probe(candidates: list[tuple[str, str]], days: int, delay: float) -> list[di
     for venue, court in candidates:
         url = API.format(venue=venue, court=court)
         for date in dates:
+            # Every record has the same shape (success or error) so the JSON
+            # summary stays trivially consumable.
+            record: dict[str, object] = {
+                "venue": venue,
+                "court": court,
+                "date": date,
+                "status": None,
+                "n_records": None,
+                "sample": None,
+                "error": None,
+            }
             try:
                 r = requests.get(url, headers=HEADERS, params={"date": date}, timeout=15)
                 n_records: int | str | None = None
@@ -91,20 +102,14 @@ def probe(candidates: list[tuple[str, str]], days: int, delay: float) -> list[di
                         sample = data[0] if data else None
                     except Exception:
                         n_records = "unparseable"
-                results.append(
-                    {
-                        "venue": venue,
-                        "court": court,
-                        "date": date,
-                        "status": r.status_code,
-                        "n_records": n_records,
-                        "sample": sample,
-                    }
-                )
+                record["status"] = r.status_code
+                record["n_records"] = n_records
+                record["sample"] = sample
                 print(f"{r.status_code:4} n={str(n_records):>6}  {date}  {venue}:{court}")
             except Exception as e:  # noqa: BLE001 - diagnostic tool, report and continue
+                record["error"] = str(e)
                 print(f" ERR  {date}  {venue}:{court}  {e}")
-                results.append({"venue": venue, "court": court, "date": date, "error": str(e)})
+            results.append(record)
             time.sleep(delay)
     return results
 

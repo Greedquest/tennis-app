@@ -7,114 +7,119 @@ sandbox's outbound proxy blocks this domain outright (CONNECT rejected at the
 proxy, before it even reaches the site). See the "probe on GitHub Actions"
 gotcha in CLAUDE.md for the general pattern this follows.
 
-It loads the page in headless Chromium via Playwright, records every
-network request/response the page makes while rendering, and prints:
-  - every XHR/fetch request URL, method, and status
-  - the body of any JSON responses (so we can see the data shape)
-  - a snippet of the final rendered HTML (fallback if there's no JSON API)
+Round 2: the first pass showed the page is fully server-rendered (no JSON
+XHR at all — only analytics beacons) and found exactly one data table. This
+round answers the open question that matters for the real implementation:
+does the "q=highbury-fields,islington-tennis-centre-outdoor" query merge
+both venues into one combined court-count table, or is it actually only
+resolving to a single venue? We answer this by loading the combined query
+and each single-venue query separately and comparing the per-slot counts,
+plus grepping the rendered text for venue name mentions and any filter
+controls that reveal venue identifiers/labels.
 
-Delete this script (and its throwaway workflow) once the API shape is known
+Delete this script (and its throwaway workflow) once the answer is known
 and the real fetch/parse code is written against it.
 """
 
 import json
+import re
 import sys
 
 from playwright.sync_api import sync_playwright
 
-URL = "https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor"
+BASE = "https://localtenniscourts.com/"
+QUERIES = {
+    "combined": "highbury-fields,islington-tennis-centre-outdoor",
+    "highbury_only": "highbury-fields",
+    "itc_outdoor_only": "islington-tennis-centre-outdoor",
+}
+
+
+def extract_tables(page):
+    return page.evaluate(
+        """
+        () => {
+            function cellSummary(cell) {
+                const txt = cell.innerText.trim().replace(/\\s+/g, ' ');
+                const bg = cell.className.includes('emerald') ? 'FREE'
+                         : cell.className.includes('red') ? 'BOOKED'
+                         : '?';
+                return `${txt || '-'}[${bg}]`;
+            }
+            const tables = Array.from(document.querySelectorAll('table'));
+            const headerTable = tables.find(t => t.querySelectorAll('thead th').length > 1);
+            const dataTable = tables.find(t => t.querySelectorAll('tbody tr').length > 0);
+            const dateHeaders = headerTable
+                ? Array.from(headerTable.querySelectorAll('thead th')).map(th => th.innerText.trim())
+                : [];
+            const rows = dataTable
+                ? Array.from(dataTable.querySelectorAll('tbody tr')).map(tr =>
+                    Array.from(tr.querySelectorAll('td')).map(cellSummary)
+                  )
+                : [];
+            return { dateHeaders, rows, tableCount: tables.length };
+        }
+        """
+    )
+
+
+def find_venue_controls(page):
+    return page.evaluate(
+        """
+        () => {
+            const candidates = Array.from(
+                document.querySelectorAll('[data-value], input[type=checkbox], label, [role=checkbox]')
+            );
+            return candidates
+                .map(el => ({
+                    tag: el.tagName,
+                    text: (el.innerText || '').trim().slice(0, 60),
+                    dataValue: el.getAttribute('data-value'),
+                    value: el.getAttribute('value'),
+                    checked: el.checked !== undefined ? el.checked : null,
+                }))
+                .filter(x => x.text || x.dataValue || x.value);
+        }
+        """
+    )
+
+
+def load_and_summarize(p, query_label, q):
+    url = f"{BASE}?q={q.replace(',', '%2C')}"
+    browser = p.chromium.launch()
+    page = browser.new_page()
+    print(f"\nNavigating [{query_label}] {url}", file=sys.stderr)
+    page.goto(url, wait_until="networkidle", timeout=30000)
+    page.wait_for_timeout(1500)
+
+    tables = extract_tables(page)
+    body_text = page.inner_text("body")
+
+    mentions = {}
+    for name in ("Highbury", "Islington", "ITC"):
+        idxs = [m.start() for m in re.finditer(name, body_text)]
+        mentions[name] = [body_text[max(0, i - 40) : i + 40].replace("\n", " ") for i in idxs[:3]]
+
+    controls = find_venue_controls(page) if query_label == "combined" else None
+
+    browser.close()
+    return {"tables": tables, "mentions": mentions, "controls": controls}
 
 
 def main() -> int:
-    captured = []
-
+    results = {}
     with sync_playwright() as p:
-        browser = p.chromium.launch()
-        page = browser.new_page()
+        for label, q in QUERIES.items():
+            results[label] = load_and_summarize(p, label, q)
 
-        def on_response(response):
-            request = response.request
-            if request.resource_type not in ("xhr", "fetch", "document"):
-                return
-            entry = {
-                "url": response.url,
-                "method": request.method,
-                "status": response.status,
-                "resource_type": request.resource_type,
-                "content_type": response.headers.get("content-type", ""),
-            }
-            if "json" in entry["content_type"]:
-                try:
-                    entry["body"] = response.json()
-                except Exception as e:  # noqa: BLE001 - diagnostic tool
-                    entry["body_error"] = str(e)
-            captured.append(entry)
-
-        page.on("response", on_response)
-
-        print(f"Navigating to {URL}", file=sys.stderr)
-        page.goto(URL, wait_until="networkidle", timeout=30000)
-        # Give any deferred/polling XHR a moment to fire after networkidle.
-        page.wait_for_timeout(3000)
-
-        html = page.content()
-        title = page.title()
-
-        # Structurally extract every <table> on the page: headers, and each
-        # cell's text/class/title/aria-label (status is almost certainly
-        # conveyed via a color class or icon, not plain text).
-        tables = page.evaluate(
-            """
-            () => {
-                function describeCell(cell) {
-                    return {
-                        text: cell.innerText.trim(),
-                        class: cell.className,
-                        title: cell.getAttribute('title'),
-                        ariaLabel: cell.getAttribute('aria-label'),
-                        html: cell.innerHTML.slice(0, 300),
-                    };
-                }
-                return Array.from(document.querySelectorAll('table')).map((table) => {
-                    // Try to find a heading/caption near this table for venue context.
-                    let heading = null;
-                    let el = table.closest('div');
-                    for (let hops = 0; el && hops < 6 && !heading; hops++, el = el.parentElement) {
-                        const h = el.querySelector('h1, h2, h3, h4, caption');
-                        if (h) heading = h.innerText.trim();
-                    }
-                    const headerCells = Array.from(table.querySelectorAll('thead th')).map(describeCell);
-                    const rows = Array.from(table.querySelectorAll('tbody tr')).map((tr) =>
-                        Array.from(tr.querySelectorAll('td')).map(describeCell)
-                    );
-                    return { heading, headerCells, rows };
-                });
-            }
-            """
-        )
-
-        browser.close()
-
-    print("\n=== PAGE TITLE ===")
-    print(title)
-
-    print("\n=== CAPTURED REQUESTS ===")
-    for entry in captured:
-        body_note = ""
-        if "body" in entry:
-            body_note = f"  body={json.dumps(entry['body'])[:2000]}"
-        elif "body_error" in entry:
-            body_note = f"  body_error={entry['body_error']}"
-        print(
-            f"{entry['status']:>4} {entry['method']:<5} [{entry['resource_type']:<8}] "
-            f"{entry['url']}{body_note}"
-        )
-
-    print("\n=== RENDERED HTML LENGTH ===")
-    print(len(html))
-
-    print("\n=== STRUCTURED TABLES ===")
-    print(json.dumps(tables, indent=2)[:20000])
+    for label, result in results.items():
+        print(f"\n=== [{label}] tableCount={result['tables']['tableCount']} ===")
+        print("date headers:", result["tables"]["dateHeaders"])
+        for row in result["tables"]["rows"]:
+            print(" ", row)
+        print("mentions:", json.dumps(result["mentions"], indent=2))
+        if result["controls"] is not None:
+            print("venue controls:", json.dumps(result["controls"], indent=2)[:3000])
 
     return 0
 

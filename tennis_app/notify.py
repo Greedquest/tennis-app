@@ -41,11 +41,11 @@ def _dataframe_to_html(df: pl.DataFrame) -> str:
 
 def send_email(subject: str, changed_rows: pl.DataFrame) -> None:
     """
-    Send an HTML email with a table of changed tennis court availability.
+    Send an HTML email listing tennis slots that just opened up.
 
     Args:
         subject: Email subject line
-        changed_rows: Polars DataFrame of rows that have changed
+        changed_rows: Polars DataFrame of slots that transitioned booked -> free
     """
     if not EMAIL_FROM or not EMAIL_TO:
         raise RuntimeError("EMAIL_FROM/EMAIL_TO not configured")
@@ -58,13 +58,16 @@ def send_email(subject: str, changed_rows: pl.DataFrame) -> None:
 
     configure_gmail()
 
-    display_columns = ["Date", "Time", "Venue", "Spaces", "Venue Size", "URL"]
-    table_html = _dataframe_to_html(changed_rows.select(display_columns))
+    display_columns = ["Date", "Time", "Venue", "Spaces", "URL"]
+    present = [c for c in display_columns if c in changed_rows.columns]
+    table_html = _dataframe_to_html(changed_rows.select(present))
 
+    n = len(changed_rows)
     body = f"""
-    <h2>Tennis Court Availability Changes</h2>
-    <p>{len(changed_rows)} availability change(s) detected:</p>
+    <h2>🎾 A Wednesday evening court just opened up</h2>
+    <p>{n} slot{"s" if n != 1 else ""} moved from booked to free — book quickly:</p>
     {table_html}
+    <p style="color:#666;font-size:12px">Alert only — book manually via the link.</p>
     """
 
     gmail.send(

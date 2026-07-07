@@ -1,6 +1,7 @@
 """Transform raw API records into a clean Polars DataFrame and diff tables."""
 
-from datetime import UTC, datetime
+import logging
+from datetime import UTC, date, datetime
 
 import polars as pl
 
@@ -85,34 +86,106 @@ def tabularise(raw_records: list[dict]) -> pl.DataFrame:
     return result
 
 
+def _start_hour(rec: dict) -> int | None:
+    """Extract the integer start hour from a raw record's starts_at.format_24_hour."""
+    starts_at = rec.get("starts_at") or {}
+    hhmm = starts_at.get("format_24_hour")
+    if not isinstance(hhmm, str) or ":" not in hhmm:
+        return None
+    try:
+        return int(hhmm.split(":", 1)[0])
+    except ValueError:
+        return None
+
+
+def filter_target_records(
+    raw_records: list[dict],
+    *,
+    weekday: int,
+    min_hour: int,
+    on_date: date | None = None,
+) -> list[dict]:
+    """
+    Keep only the slots we care about: a given weekday, at/after ``min_hour``.
+
+    Per the brief we watch Wednesday (weekday=2) evening slots (start >= 19:00).
+    When ``on_date`` is given, restrict further to that exact date — used to
+    pin the poll to *this* Wednesday's slots rather than every Wednesday in the
+    fetched window.
+    """
+    target: list[dict] = []
+    for rec in raw_records:
+        date_str = rec.get("date")
+        if not isinstance(date_str, str):
+            continue
+        try:
+            d = datetime.strptime(date_str, "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        if d.weekday() != weekday:
+            continue
+        if on_date is not None and d != on_date:
+            continue
+        hour = _start_hour(rec)
+        if hour is None or hour < min_hour:
+            continue
+        target.append(rec)
+    return target
+
+
 def key_of(row: dict) -> str:
-    """Generate a unique key for a row dict based on Date|Time|Venue."""
+    """
+    Generate a unique key for a slot.
+
+    Prefer the booking URL, which encodes venue+court+date+time and so
+    distinguishes two venues whose ``location`` label is identical (both
+    Highbury Fields and Islington outdoor report ``location`` = "Multiple",
+    which would otherwise collide on Date|Time|Venue). Fall back to
+    Date|Time|Venue when no URL is present.
+    """
+    url = row.get("URL")
+    if url:
+        return str(url)
     date_str = str(row.get("Date", ""))
     time_str = str(row.get("Time", ""))
     venue_str = str(row.get("Venue", ""))
     return f"{date_str}|{time_str}|{venue_str}"
 
 
-def diff_tables(curr: pl.DataFrame, prev: pl.DataFrame) -> list[str]:
-    """
-    Compare two DataFrames and return keys of rows that changed.
+def _spaces(row: dict) -> int:
+    """Coerce a row's Spaces value to an int (missing/None -> 0)."""
+    val = row.get("Spaces")
+    try:
+        return int(val) if val is not None else 0
+    except (TypeError, ValueError):
+        return 0
 
-    "Changed" means any field difference, or added/removed rows.
-    """
-    if prev.is_empty():
-        return [key_of(row) for row in curr.to_dicts()] if not curr.is_empty() else []
 
+def newly_free(curr: pl.DataFrame, prev: pl.DataFrame) -> pl.DataFrame:
+    """
+    Return the subset of ``curr`` rows that just transitioned booked -> free.
+
+    A slot fires an alert only when it was previously seen as *booked*
+    (0 spaces) and is now *free* (>=1 space).  Slots that are newly seen with
+    no prior record do NOT fire — we can't know they "opened up", and this
+    avoids a flood on the first ever run.  This is stricter, and more correct
+    for the brief ("On any slot moving from booked to free"), than a plain
+    field-level diff.
+    """
     if curr.is_empty():
-        return [key_of(row) for row in prev.to_dicts()]
+        return curr
 
-    prev_map = {key_of(row): row for row in prev.to_dicts()}
-    curr_map = {key_of(row): row for row in curr.to_dicts()}
+    prev_spaces = {key_of(row): _spaces(row) for row in prev.to_dicts()}
 
-    changed_keys: list[str] = []
-    all_keys = sorted(set(prev_map.keys()) | set(curr_map.keys()))
-    for k in all_keys:
-        a, b = prev_map.get(k), curr_map.get(k)
-        if a is None or b is None or a != b:
-            changed_keys.append(k)
+    changed_indices: list[int] = []
+    for i, row in enumerate(curr.to_dicts()):
+        k = key_of(row)
+        was = prev_spaces.get(k)
+        if was is not None and was == 0 and _spaces(row) > 0:
+            changed_indices.append(i)
 
-    return changed_keys
+    if not changed_indices:
+        return curr.clear()
+
+    logging.debug("newly_free: %d slot(s) went booked -> free", len(changed_indices))
+    return curr[changed_indices]

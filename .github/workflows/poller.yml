@@ -3,8 +3,16 @@ name: Poller
 
 on:
   workflow_dispatch:
+    inputs:
+      ignore_window:
+        description: 'Poll even outside the Wed midday-22:00 window (manual test)'
+        type: boolean
+        default: false
   schedule:
-    - cron: '* * * * *'
+    # Every 5 minutes on Wednesdays, 10:00-22:59 UTC. This is a coarse gate
+    # (cron is UTC and can't do DST); tennis_app enforces the precise
+    # Europe/London midday-22:00 window, so runs outside it are quiet no-ops.
+    - cron: '*/5 10-22 * * 3'
 
 # prevent overlap
 concurrency:
@@ -51,7 +59,7 @@ jobs:
           EMAIL_TO:   ${{ secrets.EMAIL_TO }}
           APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
         run: |
-          python -m tennis_app
+          python -m tennis_app ${{ inputs.ignore_window && '--ignore-window' || '' }}
 
       # Save a new cache (immutable) so the next run can restore the latest via prefix
       - name: Save cached state for next run

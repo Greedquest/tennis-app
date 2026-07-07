@@ -31,6 +31,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Disable email notifications (useful for testing).",
     )
+    p.add_argument(
+        "--ignore-window",
+        action="store_true",
+        help="Poll even outside the Wednesday midday-22:00 window (for manual testing).",
+    )
     return p.parse_args(argv)
 
 
@@ -54,7 +59,12 @@ def main(argv: list[str] | None = None) -> int:
         logging.info("Fetching activities from Better Admin API…")
         raw_records = fetch_all_activities()
 
-    run(raw_records, cache_path=args.cache, notify=not args.no_notify)
+    run(
+        raw_records,
+        cache_path=args.cache,
+        notify=not args.no_notify,
+        enforce_window=not args.ignore_window,
+    )
     return 0
 
 

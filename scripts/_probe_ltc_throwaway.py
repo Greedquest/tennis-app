@@ -1,91 +1,49 @@
 #!/usr/bin/env python3
-"""One-off probe: inspect localtenniscourts.com for an underlying JSON API."""
+"""One-off probe: drive localtenniscourts.com with a headless browser and
+capture every network request it makes, to find the underlying data API."""
 import json
-import re
 import sys
 
-import requests
-
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    ),
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-}
+from playwright.sync_api import sync_playwright
 
 URL = "https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor"
 
 
 def main() -> int:
-    r = requests.get(URL, headers=HEADERS, timeout=20)
-    print(f"STATUS: {r.status_code}")
-    print(f"LEN: {len(r.text)}")
-    html = r.text
+    requests_seen = []
 
-    # 1. Look for embedded JSON blobs (Next.js, Nuxt, etc.)
-    for marker in ["__NEXT_DATA__", "__NUXT__", "window.__INITIAL_STATE__", "application/json"]:
-        if marker in html:
-            print(f"FOUND MARKER: {marker}")
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page()
 
-    # 2. Find script src references + modulepreload links (Vite emits these, not <script src>)
-    scripts = re.findall(r'<script[^>]+src="([^"]+)"', html)
-    modulepreloads = re.findall(r'<link rel="modulepreload" href="([^"]+)"', html)
-    print("\n--- SCRIPT SRCS ---")
-    for s in scripts:
-        print(s)
-    print("\n--- MODULEPRELOAD HREFS ---")
-    for m in modulepreloads:
-        print(m)
-    scripts = scripts + modulepreloads
+        def on_request(req):
+            requests_seen.append({"method": req.method, "url": req.url, "resource_type": req.resource_type})
 
-    # 3. Find any /api/ or json-looking paths mentioned in the HTML
-    api_like = sorted(set(re.findall(r'["\'](/[a-zA-Z0-9_\-./]*api[a-zA-Z0-9_\-./]*)["\']', html)))
-    print("\n--- API-LIKE PATHS IN HTML ---")
-    for a in api_like:
-        print(a)
+        def on_response(res):
+            if res.request.resource_type in ("xhr", "fetch"):
+                try:
+                    body_preview = res.text()[:1500]
+                except Exception as e:
+                    body_preview = f"<unreadable: {e}>"
+                print(f"\n=== RESPONSE {res.status} {res.request.method} {res.url} ===")
+                print(f"content-type: {res.headers.get('content-type')}")
+                print(body_preview)
 
-    # 4. Dump a snippet of raw HTML for manual inspection (first 3000 chars)
-    print("\n--- HTML HEAD SNIPPET ---")
-    print(html[:3000])
+        page.on("request", on_request)
+        page.on("response", on_response)
 
-    # 5. Fetch same-origin JS bundles (main.js, index.js, etc.) and grep broadly for
-    #    anything that looks like a backend call: absolute https URLs, fetch/axios
-    #    calls, supabase/firebase/graphql hints, or literal "api" substrings.
-    print("\n--- SCANNING JS BUNDLES FOR ENDPOINTS ---")
-    base = "https://localtenniscourts.com"
-    same_origin = [s for s in scripts if s.startswith("/") or base in s]
-    for s in same_origin:
-        src = s if s.startswith("http") else f"{base}{s}"
-        try:
-            jr = requests.get(src, headers=HEADERS, timeout=20)
-            text = jr.text
-            print(f"\n{src} ({len(text)} bytes)")
+        page.goto(URL, wait_until="networkidle", timeout=30000)
+        page.wait_for_timeout(3000)
 
-            abs_urls = sorted(set(re.findall(r'https?://[a-zA-Z0-9_\-./%]+', text)))
-            non_asset_urls = [
-                u for u in abs_urls
-                if "localtenniscourts.com" not in u
-                and not any(u.endswith(ext) for ext in (".png", ".jpg", ".svg", ".ico", ".woff", ".woff2"))
-                and "w3.org" not in u
-            ]
-            if non_asset_urls:
-                print("  absolute URLs referenced:")
-                for u in non_asset_urls[:60]:
-                    print("   ", u)
+        browser.close()
 
-            for kw in ["supabase", "firebase", "graphql", "fetch(", "axios", "/api", "cloudflare", "worker", ".workers.dev", "better-admin", "better.org.uk", "clubspark", "everyoneactive", "gll", "activenetwork"]:
-                idxs = [m.start() for m in re.finditer(re.escape(kw), text)]
-                if idxs:
-                    print(f"  keyword {kw!r}: {len(idxs)} occurrence(s)")
-                    for i in idxs[:5]:
-                        lo, hi = max(0, i - 80), min(len(text), i + 120)
-                        snippet = text[lo:hi].replace("\n", " ")
-                        print(f"    ...{snippet}...")
+    print("\n\n=== ALL REQUESTS (non-static) ===")
+    for r in requests_seen:
+        if r["resource_type"] in ("xhr", "fetch", "document"):
+            print(f"{r['resource_type']:10} {r['method']:5} {r['url']}")
 
-        except Exception as e:
-            print(f"  ERR fetching {src}: {e}")
+    print("\n=== ALL REQUESTS (full, JSON) ===")
+    print(json.dumps(requests_seen, indent=2))
 
     return 0
 

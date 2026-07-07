@@ -29,11 +29,16 @@ def main() -> int:
         if marker in html:
             print(f"FOUND MARKER: {marker}")
 
-    # 2. Find script src references
+    # 2. Find script src references + modulepreload links (Vite emits these, not <script src>)
     scripts = re.findall(r'<script[^>]+src="([^"]+)"', html)
+    modulepreloads = re.findall(r'<link rel="modulepreload" href="([^"]+)"', html)
     print("\n--- SCRIPT SRCS ---")
     for s in scripts:
         print(s)
+    print("\n--- MODULEPRELOAD HREFS ---")
+    for m in modulepreloads:
+        print(m)
+    scripts = scripts + modulepreloads
 
     # 3. Find any /api/ or json-looking paths mentioned in the HTML
     api_like = sorted(set(re.findall(r'["\'](/[a-zA-Z0-9_\-./]*api[a-zA-Z0-9_\-./]*)["\']', html)))
@@ -45,19 +50,36 @@ def main() -> int:
     print("\n--- HTML HEAD SNIPPET ---")
     print(html[:3000])
 
-    # 5. Try fetching same-origin scripts and grep them for fetch()/axios/api endpoints
+    # 5. Fetch same-origin JS bundles (main.js, index.js, etc.) and grep broadly for
+    #    anything that looks like a backend call: absolute https URLs, fetch/axios
+    #    calls, supabase/firebase/graphql hints, or literal "api" substrings.
     print("\n--- SCANNING JS BUNDLES FOR ENDPOINTS ---")
     base = "https://localtenniscourts.com"
-    for s in scripts[:8]:
-        src = s if s.startswith("http") else (base + s if s.startswith("/") else f"{base}/{s}")
+    same_origin = [s for s in scripts if s.startswith("/") or base in s]
+    for s in same_origin:
+        src = s if s.startswith("http") else f"{base}{s}"
         try:
             jr = requests.get(src, headers=HEADERS, timeout=20)
-            endpoints = sorted(set(re.findall(r'["\'`](https?://[a-zA-Z0-9_\-./]*(?:api|json)[a-zA-Z0-9_\-./]*)["\'`]', jr.text)))
-            rel_endpoints = sorted(set(re.findall(r'["\'`](/(?:api|graphql)[a-zA-Z0-9_\-./]*)["\'`]', jr.text)))
-            if endpoints or rel_endpoints:
-                print(f"\n{src} ({len(jr.text)} bytes):")
-                for e in endpoints + rel_endpoints:
-                    print(" ", e)
+            text = jr.text
+            print(f"\n{src} ({len(text)} bytes)")
+
+            abs_urls = sorted(set(re.findall(r'https?://[a-zA-Z0-9_\-./%]+', text)))
+            non_asset_urls = [
+                u for u in abs_urls
+                if "localtenniscourts.com" not in u
+                and not any(u.endswith(ext) for ext in (".png", ".jpg", ".svg", ".ico", ".woff", ".woff2"))
+                and "w3.org" not in u
+            ]
+            if non_asset_urls:
+                print("  absolute URLs referenced:")
+                for u in non_asset_urls[:60]:
+                    print("   ", u)
+
+            for kw in ["supabase", "firebase", "graphql", "fetch(", "axios", "/api", "cloudflare", "worker", ".workers.dev"]:
+                count = text.count(kw)
+                if count:
+                    print(f"  keyword {kw!r}: {count} occurrence(s)")
+
         except Exception as e:
             print(f"  ERR fetching {src}: {e}")
 

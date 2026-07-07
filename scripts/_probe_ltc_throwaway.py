@@ -75,10 +75,14 @@ def main() -> int:
                 for u in non_asset_urls[:60]:
                     print("   ", u)
 
-            for kw in ["supabase", "firebase", "graphql", "fetch(", "axios", "/api", "cloudflare", "worker", ".workers.dev"]:
-                count = text.count(kw)
-                if count:
-                    print(f"  keyword {kw!r}: {count} occurrence(s)")
+            for kw in ["supabase", "firebase", "graphql", "fetch(", "axios", "/api", "cloudflare", "worker", ".workers.dev", "better-admin", "better.org.uk", "clubspark", "everyoneactive", "gll", "activenetwork"]:
+                idxs = [m.start() for m in re.finditer(re.escape(kw), text)]
+                if idxs:
+                    print(f"  keyword {kw!r}: {len(idxs)} occurrence(s)")
+                    for i in idxs[:5]:
+                        lo, hi = max(0, i - 80), min(len(text), i + 120)
+                        snippet = text[lo:hi].replace("\n", " ")
+                        print(f"    ...{snippet}...")
 
         except Exception as e:
             print(f"  ERR fetching {src}: {e}")

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""One-off probe: the rendered page shows real slot data (times + court
-counts) with NO extra XHR/fetch beyond analytics -- so the data must
-already be present in the plain server-rendered HTML response. Find
-exactly where/how it's embedded."""
+"""One-off probe: fully parse the SSR table structure - headers (venue/court
+columns), slot status classes (booked vs free), and how day/date selection
+works (URL param vs client tabs)."""
 import re
 import sys
 
 import requests
+from bs4 import BeautifulSoup
 
 URL = "https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor"
 HEADERS = {
@@ -20,40 +20,45 @@ HEADERS = {
 def main() -> int:
     r = requests.get(URL, headers=HEADERS, timeout=20)
     html = r.text
-    print(f"STATUS: {r.status_code}  LEN: {len(html)}")
+    soup = BeautifulSoup(html, "html.parser")
 
-    # Look for any embedded data / hydration markers across common frameworks.
-    markers = [
-        "__NEXT_DATA__", "__NUXT__", "__INITIAL_STATE__", "__TSR", "__ROUTER",
-        "dehydrated", "queryClient", "RSC_PAYLOAD", "__staticRouterHydrationData",
-        "type=\"application/json\"", "id=\"__", "window.__",
-    ]
-    print("\n--- MARKER SCAN ---")
-    for m in markers:
-        count = html.count(m)
+    tables = soup.find_all("table")
+    print(f"Found {len(tables)} <table> element(s)")
+
+    for ti, table in enumerate(tables):
+        print(f"\n=== TABLE {ti} ===")
+        rows = table.find_all("tr")
+        print(f"{len(rows)} rows")
+        for ri, row in enumerate(rows[:6]):
+            cells = row.find_all(["th", "td"])
+            cell_summ = []
+            for c in cells:
+                classes = " ".join(c.get("class", []))
+                status = "?"
+                if "red" in classes:
+                    status = "RED"
+                elif "green" in classes:
+                    status = "GREEN"
+                elif "emerald" in classes:
+                    status = "EMERALD"
+                text = c.get_text(strip=True)[:20]
+                cell_summ.append(f"[{text!r}/{status}]")
+            print(f"row {ri}: {' '.join(cell_summ)}")
+
+    # Look for day-of-week selectors / date navigation controls
+    print("\n=== DAY/DATE UI SEARCH ===")
+    for kw in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "Today", "Tomorrow"]:
+        count = len(re.findall(rf"\b{kw}\b", html))
         if count:
-            print(f"{m!r}: {count} occurrence(s)")
-            idx = html.find(m)
-            lo, hi = max(0, idx - 100), min(len(html), idx + 400)
-            print("  context:", html[lo:hi].replace("\n", " "))
+            print(f"{kw!r}: {count} occurrence(s)")
 
-    # Look for the actual slot times we saw rendered ("18:00", "19:00", "20:00")
-    # and dump generous context so we can see the surrounding markup structure.
-    print("\n--- TIME SLOT CONTEXT ---")
-    for t in ["18:00", "19:00", "20:00"]:
-        idx = html.find(t)
-        if idx == -1:
-            print(f"{t}: NOT FOUND in raw HTML")
-            continue
-        lo, hi = max(0, idx - 300), min(len(html), idx + 300)
-        print(f"\n{t} found at offset {idx}:")
-        print(html[lo:hi])
+    # Check for a date-like query param support by looking at any <a>/<button> href/onclick with date=
+    date_params = re.findall(r'date=[0-9\-]+', html)
+    print("\ndate= params found in HTML:", sorted(set(date_params))[:10])
 
-    print("\n--- 'Highbury' CONTEXT (first 3 occurrences) ---")
-    for m in list(re.finditer("Highbury", html))[:3]:
-        lo, hi = max(0, m.start() - 200), min(len(html), m.start() + 200)
-        print(f"\nat offset {m.start()}:")
-        print(html[lo:hi])
+    # Dump all distinct classes containing color words to enumerate the full status vocabulary
+    color_classes = sorted(set(re.findall(r'\b(?:bg|text)-(?:red|green|emerald|amber|yellow|slate|gray)-\d+[\w/]*', html)))
+    print("\nDistinct status-ish classes:", color_classes[:30])
 
     return 0
 

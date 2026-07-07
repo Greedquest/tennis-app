@@ -15,6 +15,54 @@ pip install marimo anywidget polars requests
 marimo run dashboard.py
 ```
 
+## Highbury Fields Wednesday-evening court watch
+
+`scripts/highbury_wednesday_watch.py` is a separate, standalone monitor from
+the Better Admin poller above. It watches
+[localtenniscourts.com](https://localtenniscourts.com/?q=highbury-fields)
+for Highbury Fields slots starting at or after 19:00 that flip from booked to
+free, on Wednesdays only, and fires a desktop/Termux notification. It does
+**not** book anything.
+
+It deliberately runs as a **local scheduled script**, not a cloud routine or
+GitHub Actions job: it needs a 5-minute cadence, and hosted routines/CI
+schedules are hourly at best. It also needs no browser — the page is fully
+server-rendered, so a plain HTTP GET already contains the populated table.
+
+Setup:
+
+```sh
+pip install -r scripts/requirements-highbury-watch.txt
+```
+
+Verify without sending a notification:
+
+```sh
+python scripts/highbury_wednesday_watch.py --no-notify --force
+```
+
+(`--force` bypasses the Wednesday-only check so you can test any day; drop it
+for real runs. Run it twice back-to-back to see the "no new availability"
+path once state is cached.)
+
+Schedule it with cron, every 5 minutes, Wednesdays, midday–22:00:
+
+```cron
+*/5 12-22 * * 3 cd /path/to/tennis-app && /usr/bin/python3 scripts/highbury_wednesday_watch.py >> ~/.cache/highbury_watch.log 2>&1
+```
+
+On Android via Termux + cron (or Tasker calling `termux-job-scheduler`), the
+script auto-detects `termux-notification` for the alert; otherwise it falls
+back to `notify-send` (Linux) or `osascript` (macOS).
+
+Notes:
+- Only the `highbury-fields` slug resolves on localtenniscourts.com. A
+  candidate `islington-tennis-centre-outdoor` slug was tried and returns an
+  error page on this site — it is not the same identifier space as the
+  Better Admin API the poller above uses, so it isn't wired in here.
+- State is cached per-day at `~/.cache/highbury_wednesday_watch.json` (or
+  `--state PATH`); delete it to reset.
+
 ## GitHub Copilot Configuration
 
 This repository includes configuration for GitHub Copilot Cloud Agent to access external domains:

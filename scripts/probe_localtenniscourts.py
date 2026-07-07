@@ -60,6 +60,39 @@ def main() -> int:
         html = page.content()
         title = page.title()
 
+        # Structurally extract every <table> on the page: headers, and each
+        # cell's text/class/title/aria-label (status is almost certainly
+        # conveyed via a color class or icon, not plain text).
+        tables = page.evaluate(
+            """
+            () => {
+                function describeCell(cell) {
+                    return {
+                        text: cell.innerText.trim(),
+                        class: cell.className,
+                        title: cell.getAttribute('title'),
+                        ariaLabel: cell.getAttribute('aria-label'),
+                        html: cell.innerHTML.slice(0, 300),
+                    };
+                }
+                return Array.from(document.querySelectorAll('table')).map((table) => {
+                    // Try to find a heading/caption near this table for venue context.
+                    let heading = null;
+                    let el = table.closest('div');
+                    for (let hops = 0; el && hops < 6 && !heading; hops++, el = el.parentElement) {
+                        const h = el.querySelector('h1, h2, h3, h4, caption');
+                        if (h) heading = h.innerText.trim();
+                    }
+                    const headerCells = Array.from(table.querySelectorAll('thead th')).map(describeCell);
+                    const rows = Array.from(table.querySelectorAll('tbody tr')).map((tr) =>
+                        Array.from(tr.querySelectorAll('td')).map(describeCell)
+                    );
+                    return { heading, headerCells, rows };
+                });
+            }
+            """
+        )
+
         browser.close()
 
     print("\n=== PAGE TITLE ===")
@@ -80,17 +113,8 @@ def main() -> int:
     print("\n=== RENDERED HTML LENGTH ===")
     print(len(html))
 
-    print("\n=== RENDERED HTML SNIPPET (first 3000 chars of <body>) ===")
-    body_start = html.find("<body")
-    print(html[body_start : body_start + 3000] if body_start != -1 else html[:3000])
-
-    print("\n=== RENDERED HTML SNIPPET (search for 'wed' / table rows) ===")
-    lower = html.lower()
-    idx = lower.find("wed")
-    if idx != -1:
-        print(html[max(0, idx - 500) : idx + 1500])
-    else:
-        print("(no 'wed' substring found in rendered HTML)")
+    print("\n=== STRUCTURED TABLES ===")
+    print(json.dumps(tables, indent=2)[:20000])
 
     return 0
 

@@ -16,6 +16,5 @@ jobs:
       - uses: actions/setup-python@v6.1.0
         with:
           python-version: '3.12'
-      - run: pip install playwright requests
-      - run: playwright install --with-deps chromium
+      - run: pip install requests
       - run: python scripts/_probe_ltc_throwaway.py

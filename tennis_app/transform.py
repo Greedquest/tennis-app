@@ -19,6 +19,7 @@ def tabularise(raw_records: list[dict]) -> pl.DataFrame:
     empty = pl.DataFrame(
         schema={
             "Time": pl.Utf8,
+            "Time24": pl.Utf8,
             "Date": pl.Date,
             "Spaces": pl.Int64,
             "Venue": pl.Utf8,
@@ -54,6 +55,7 @@ def tabularise(raw_records: list[dict]) -> pl.DataFrame:
 
     result = df.select(
         pl.col("time_12h").alias("Time"),
+        pl.col("time_24h").alias("Time24"),
         pl.col("date").str.strptime(pl.Date, "%Y-%m-%d", strict=False).alias("Date"),
         pl.col("spaces").cast(pl.Int64).alias("Spaces"),
         pl.col("location").alias("Venue"),

@@ -8,6 +8,7 @@ import polars as pl
 from tennis_app.cache import load_prev_rows, save_rows
 from tennis_app.notify import send_email
 from tennis_app.transform import diff_tables, key_of, tabularise
+from tennis_app.wednesday_watch import find_newly_available_wednesday_evenings
 
 
 def run(
@@ -37,6 +38,15 @@ def run(
 
     logging.info("Loading previous rows from cache…")
     prev_df = load_prev_rows(cache_path)
+
+    logging.info("Checking for newly-available Wednesday evening slots…")
+    newly_available = find_newly_available_wednesday_evenings(curr_df, prev_df)
+    if not newly_available.is_empty():
+        logging.info("%d Wednesday evening slot(s) opened up!", newly_available.height)
+        if notify:
+            send_email("🎾 Wednesday evening court just opened up!", newly_available)
+        else:
+            logging.info("Wednesday evening slot(s) opened but notifications disabled.")
 
     logging.info("Computing changes…")
     changed_keys = diff_tables(curr_df, prev_df)

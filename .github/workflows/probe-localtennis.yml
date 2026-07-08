@@ -27,5 +27,5 @@ jobs:
         run: |
           python scripts/probe_venue.py \
             islington-tennis-centre:tennis-court-outdoor \
-            islington-parks:tennis-court-outdoor \
-            --days 3 --delay 2
+            islington-parks:highbury-fields-activities \
+            --days 2 --delay 3

@@ -2,6 +2,39 @@
 
 A Python application for polling tennis court availability and sending email notifications via Gmail.
 
+## Wednesday-evening court watch (local script)
+
+`scripts/watch_wednesday_courts.py` is a separate, standalone monitor for
+[localtenniscourts.com](https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor)
+(Highbury Fields / Islington Tennis Centre outdoor). It alerts the moment a
+slot starting at or after 19:00 *today* flips from booked to free — alert
+only, no booking automation.
+
+It's intentionally not part of the `tennis_app` package or the GitHub
+Actions poller above: that poller targets a different site (Better Admin)
+on a different schedule, and this task needs 5-minute granularity, which
+is finer than a hosted routine can offer. Instead it's meant to run from
+your own machine (or a phone via Termux) on a cron-like schedule.
+
+```sh
+pip install requests beautifulsoup4
+# optional: desktop notification fallback when not running under Termux
+pip install plyer
+
+python scripts/watch_wednesday_courts.py --force --dry-run --verbose  # test run
+```
+
+Cron (every 5 min on Wednesdays — the script's own time-window check narrows
+this to midday–22:00, so the cron expression itself can stay loose):
+
+```
+*/5 * * * 3 /usr/bin/python3 /path/to/watch_wednesday_courts.py
+```
+
+On Termux, install `cronie` (or drive it from Tasker) and `termux-api` +
+the Termux:API app so `termux-notification` is available; the script falls
+back to `plyer` (desktop) and then a log line if neither is present.
+
 ## Dashboard
 
 A Marimo notebook has been set up to help debug the app.

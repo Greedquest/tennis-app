@@ -21,7 +21,7 @@ jobs:
 
       - name: Install deps
         run: |
-          pip install playwright
+          pip install playwright requests
           playwright install --with-deps chromium
 
       - name: Probe localtenniscourts.com

@@ -1,0 +1,33 @@
+name: Probe LTC (throwaway)
+
+on:
+  push:
+    branches:
+      - claude/great-wright-otyjrj
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch page HTML
+        run: |
+          curl -sL -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+            "https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor" \
+            -o page.html -w "HTTP status: %{http_code}\n"
+          echo "--- bytes: $(wc -c < page.html) ---"
+          echo "--- script/link src references ---"
+          grep -oE '(src|href)="[^"]+"' page.html | sort -u | head -100
+          echo "--- inline JSON / __NEXT_DATA__ / __NUXT__ / window.__ hints ---"
+          grep -oE '(__NEXT_DATA__|__NUXT__|window\.__[A-Za-z_]+|api[/.][A-Za-z0-9_./-]*)' page.html | sort -u | head -50
+          echo "--- first 3000 chars of HTML ---"
+          head -c 3000 page.html
+      - name: Try common API guesses
+        continue-on-error: true
+        run: |
+          for path in "api/venues" "api/courts" "api/availability" "api/slots" "_next/data"; do
+            echo "=== $path ==="
+            curl -sL -o /dev/null -w "  %{http_code}\n" "https://localtenniscourts.com/$path" || true
+          done

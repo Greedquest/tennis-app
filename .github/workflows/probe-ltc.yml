@@ -26,6 +26,9 @@ jobs:
       - name: Probe LTC
         run: python scripts/probe_ltc.py
 
+      - name: Cool off before hitting Better Admin (avoid recent rate-limit window)
+        run: sleep 120
+
       - name: Probe Better Admin for highbury-tennis slug
         run: |
           python scripts/probe_venue.py \

@@ -8,10 +8,15 @@
 
 Target behavior for this routine is to alert when a tennis slot starting
 ≥19:00 on **Wednesday** flips from booked to free (alert only — no booking).
-Current repository code is still on the generic poller/diff flow described
-below unless and until the Wednesday-watch implementation lands.
+The Wednesday-watch implementation has landed: `scripts/wednesday_watch.py`.
+It's a standalone local script (cron / Termux:Crond / Tasker), not a cloud
+routine — Claude Code cloud routines are hourly-minimum, far too coarse for
+a 5-minute Wednesday-only cadence. See the script's own docstring for the
+cron line and `--force --dry-run` verification steps. The GitHub Actions
+poller described below is a separate, still-running thing — it does generic
+diff/email on Islington Tennis Centre only and isn't being replaced by this.
 
-## What the routine does
+## What the (separate, still-running) generic poller does
 
 - Poller (current): `.github/workflows/poller.yml`, cron `* * * * *` (every minute).
 - Each run: fetch → `tennis_app/pipeline.run()` → email via Gmail SMTP if a watched slot opened up, else log quietly and exit.
@@ -21,8 +26,9 @@ below unless and until the Wednesday-watch implementation lands.
 
 ## Venues watched
 
-- `islington-tennis-centre` / `tennis-court-indoor` + `tennis-court-outdoor`.
-- Highbury Fields (`islington-parks` / `tennis-court-outdoor`) is currently a probed candidate only; it's not in `tennis_app/config.py` yet.
+- Generic poller: `islington-tennis-centre` / `tennis-court-indoor` + `tennis-court-outdoor`.
+- Wednesday watch (`scripts/wednesday_watch.py`): `islington-tennis-centre`/`tennis-court-outdoor`, plus two unconfirmed Highbury Fields candidates (`islington-parks`/`highbury-fields-activities` and `islington-parks`/`tennis-court-outdoor` — both return 200 with 0 records; whichever slug is wrong is harmless, it just never reports slots). Confirm properly with `scripts/probe_venue.py` once Better Admin isn't rate-limiting.
+- `localtenniscourts.com` (the aggregator originally proposed as a source) was investigated and rejected: it's a client-rendered SPA with no callable JSON API, and its own data load errors out ("problem loading the court availability data") even from real GitHub Actions egress — so `scripts/wednesday_watch.py` polls Better Admin directly instead, same as the generic poller.
 
 ## Gotchas when working on this routine
 

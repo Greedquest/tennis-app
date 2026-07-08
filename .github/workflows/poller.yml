@@ -4,7 +4,13 @@ name: Poller
 on:
   workflow_dispatch:
   schedule:
-    - cron: '* * * * *'
+    # Wednesday-evening watch only: the alert rule (tennis_app/transform.py::
+    # opened_up_keys) only fires for Wednesday slots >=19:00, so there's no
+    # value polling the rest of the week. Window is UK midday-22:00 local,
+    # widened by an hour in cron/UTC terms to cover both GMT and BST without
+    # a DST-aware schedule.
+    - cron: '*/5 11-21 * * 3'
+    - cron: '0 22 * * 3'
 
 # prevent overlap
 concurrency:

@@ -19,6 +19,7 @@ def tabularise(raw_records: list[dict]) -> pl.DataFrame:
     empty = pl.DataFrame(
         schema={
             "Time": pl.Utf8,
+            "Time24": pl.Utf8,
             "Date": pl.Date,
             "Spaces": pl.Int64,
             "Venue": pl.Utf8,
@@ -54,6 +55,7 @@ def tabularise(raw_records: list[dict]) -> pl.DataFrame:
 
     result = df.select(
         pl.col("time_12h").alias("Time"),
+        pl.col("time_24h").alias("Time24"),
         pl.col("date").str.strptime(pl.Date, "%Y-%m-%d", strict=False).alias("Date"),
         pl.col("spaces").cast(pl.Int64).alias("Spaces"),
         pl.col("location").alias("Venue"),
@@ -83,6 +85,19 @@ def tabularise(raw_records: list[dict]) -> pl.DataFrame:
     )
 
     return result
+
+
+WEDNESDAY = 2  # datetime.date.weekday(): Monday=0 ... Sunday=6
+WATCH_FROM_24H = "19:00"
+
+
+def is_watched_slot(row: dict) -> bool:
+    """True if a row is a Wednesday slot starting at or after 19:00."""
+    date = row.get("Date")
+    time24 = row.get("Time24")
+    if date is None or time24 is None:
+        return False
+    return date.weekday() == WEDNESDAY and time24 >= WATCH_FROM_24H
 
 
 def key_of(row: dict) -> str:
@@ -116,3 +131,32 @@ def diff_tables(curr: pl.DataFrame, prev: pl.DataFrame) -> list[str]:
             changed_keys.append(k)
 
     return changed_keys
+
+
+def opened_up_keys(curr: pl.DataFrame, prev: pl.DataFrame) -> list[str]:
+    """
+    Return keys of watched slots (Wednesday, starting >= 19:00) that flipped
+    from fully booked (Spaces == 0) to free (Spaces > 0) between prev and curr.
+
+    A slot with no matching row in ``prev`` is skipped rather than treated as
+    an "opening" — without a prior baseline there's nothing to flip from, so
+    a cold/lost cache correctly produces no alerts.
+    """
+    if curr.is_empty() or prev.is_empty():
+        return []
+
+    prev_map = {key_of(row): row for row in prev.to_dicts() if is_watched_slot(row)}
+    curr_map = {key_of(row): row for row in curr.to_dicts() if is_watched_slot(row)}
+
+    opened: list[str] = []
+    for k, curr_row in curr_map.items():
+        prev_row = prev_map.get(k)
+        if prev_row is None:
+            continue
+
+        prev_free = (prev_row.get("Spaces") or 0) > 0
+        curr_free = (curr_row.get("Spaces") or 0) > 0
+        if not prev_free and curr_free:
+            opened.append(k)
+
+    return opened

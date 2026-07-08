@@ -2,6 +2,44 @@
 
 A Python application for polling tennis court availability and sending email notifications via Gmail.
 
+## Local Wednesday-evening court watch (localtenniscourts.com)
+
+`scripts/local_court_watch.py` is a separate, standalone monitor for a different
+source: [localtenniscourts.com](https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor),
+which aggregates Highbury Fields and Islington Tennis Centre (outdoor) into one
+search. It alerts (desktop notification only, no booking) the moment a slot
+starting at or after 19:00 on Wednesday flips from booked to free.
+
+The site has no JSON API — the availability grid is fully server-rendered into
+the initial HTML, so the script does a plain HTTP GET and parses the table
+with BeautifulSoup.
+
+This is intentionally **not** a GitHub Actions / Claude Code cloud routine:
+cloud routines run hourly at best, and this needs a 5-minute cadence during a
+narrow window. Run it yourself with cron or Termux:
+
+```sh
+pip install requests beautifulsoup4
+
+# Every 5 minutes, Wednesdays only, midday to 22:00
+*/5 12-21 * * 3 cd /path/to/tennis-app && python3 scripts/local_court_watch.py
+```
+
+On Termux (Android), install `termux-api` for `termux-notification` support,
+then add the same line via `crontab -e` (needs `cronie`/`termux-services`) or
+a Tasker task that shells out on the same schedule.
+
+Test the parser offline against a saved page snapshot (no network needed):
+
+```sh
+python3 scripts/local_court_watch.py \
+  --html-file testing/fixtures/localtenniscourts_sample.html \
+  --state-file /tmp/state.json --no-notify
+```
+
+State (last-seen court count per Wednesday time slot) is cached at
+`~/.cache/tennis-watch/state.json` by default (override with `--state-file`).
+
 ## Dashboard
 
 A Marimo notebook has been set up to help debug the app.

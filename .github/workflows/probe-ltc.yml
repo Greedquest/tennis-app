@@ -51,3 +51,12 @@ jobs:
           grep -oE '[A-Za-z0-9-]+\.[A-Za-z0-9-]+\.(com|co\.uk|org\.uk|dev|app|io|net)' main.js index.js | sort -u | head -100
           echo "--- baseURL / VITE_ / import.meta.env hints ---"
           grep -oE '(baseURL|base_url|VITE_[A-Z_]+|import\.meta\.env\.[A-Z_]+)' main.js index.js | sort -u | head -100
+          echo "--- fetch( / XMLHttpRequest / axios.create / queryFn context ---"
+          grep -oE '.{20}(fetch\(|XMLHttpRequest|axios\.create|queryFn *:|queryKey *:).{60}' main.js index.js | sort -u | head -100
+          echo "--- dynamic import() of other chunks ---"
+          grep -oE 'import\("[^"]+"\)' main.js index.js | sort -u | head -50
+          grep -oE "import\('[^']+'\)" main.js index.js | sort -u | head -50
+          echo "--- all quoted absolute-path strings starting with / (len>3), sample ---"
+          grep -oE '"/[A-Za-z0-9_-]{3,40}"' main.js index.js | sort -u | head -150
+          echo "--- 'localtenniscourts' backend hints (workers/pages functions) ---"
+          grep -oE '.{30}localtenniscourts\.com[A-Za-z0-9_./%-]*.{10}' main.js index.js | sort -u | head -40

@@ -1,0 +1,36 @@
+name: Probe localtenniscourts.com
+
+on:
+  push:
+    branches:
+      - claude/great-wright-7w2wyi
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6.1.0
+        with:
+          python-version: '3.12'
+
+      - name: Install Playwright
+        run: |
+          pip install playwright
+          playwright install --with-deps chromium
+
+      - name: Probe site
+        run: python scripts/probe_localtenniscourts.py
+
+      - name: Upload rendered HTML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rendered-html
+          path: localtenniscourts_rendered.html

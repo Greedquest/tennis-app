@@ -24,55 +24,57 @@ jobs:
           pip install playwright
           playwright install --with-deps chromium
 
-      - name: Load page in a real browser and capture network traffic
+      - name: Load page, log ALL requests, dump rendered text + screenshot
         run: |
           python3 - <<'PYEOF'
           import json
           from playwright.sync_api import sync_playwright
 
           URL = "https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor"
-          calls = []
+          requests_seen = []
 
-          def on_response(response):
-              req = response.request
-              ct = response.headers.get("content-type", "")
-              if req.resource_type in ("xhr", "fetch") or "json" in ct:
-                  entry = {
-                      "url": response.url,
-                      "method": req.method,
-                      "status": response.status,
-                      "content_type": ct,
-                      "post_data": req.post_data,
-                  }
-                  try:
-                      entry["body"] = response.text()[:4000]
-                  except Exception as e:
-                      entry["body"] = f"<error reading body: {e}>"
-                  calls.append(entry)
+          def on_request(req):
+              requests_seen.append({"method": req.method, "url": req.url, "type": req.resource_type})
+
+          console_msgs = []
 
           with sync_playwright() as p:
               browser = p.chromium.launch()
               page = browser.new_page()
-              page.on("response", on_response)
-              page.goto(URL, wait_until="networkidle", timeout=30000)
-              # give any lazy client-side fetches a moment
-              page.wait_for_timeout(4000)
+              page.on("request", on_request)
+              page.on("console", lambda msg: console_msgs.append(f"[{msg.type}] {msg.text}"))
+              page.on("pageerror", lambda exc: console_msgs.append(f"[pageerror] {exc}"))
+              page.goto(URL, wait_until="load", timeout=30000)
+              page.wait_for_timeout(6000)
+              page.screenshot(path="/tmp/screenshot.png", full_page=True)
+              body_text = page.inner_text("body")
+              html = page.content()
               browser.close()
 
-          print(f"=== Captured {len(calls)} xhr/fetch/json responses ===")
-          for c in calls:
-              print("-" * 80)
-              print(json.dumps({k: v for k, v in c.items() if k != "body"}, indent=2))
-              print("BODY:", c["body"])
+          print(f"=== {len(requests_seen)} total requests ===")
+          for r in requests_seen:
+              print(r["type"], r["method"], r["url"])
 
-          with open("/tmp/network_calls.json", "w") as f:
-              json.dump(calls, f, indent=2)
+          print("=== console/page errors ===")
+          for m in console_msgs:
+              print(m)
+
+          print("=== rendered body innerText (first 3000 chars) ===")
+          print(body_text[:3000])
+
+          with open("/tmp/rendered.html", "w") as f:
+              f.write(html)
+          with open("/tmp/body_text.txt", "w") as f:
+              f.write(body_text)
           PYEOF
 
-      - name: Upload captured network calls
+      - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ltc-network-calls
-          path: /tmp/network_calls.json
+          name: ltc-render-dump
+          path: |
+            /tmp/screenshot.png
+            /tmp/rendered.html
+            /tmp/body_text.txt
           retention-days: 1

@@ -2,58 +2,85 @@
 """Throwaway probe: inspect how localtenniscourts.com loads its availability data.
 
 Loads the query page in a real browser (Playwright/Chromium) and records every
-network response whose URL or content-type looks like a data/API call, plus a
-snippet of the rendered HTML. Meant to be run once from a GitHub Actions
-runner (the sandbox proxy blocks this domain) to answer: does the site expose
-a JSON endpoint, or is scraping the rendered HTML the only option?
+network response (any host), plus a dump of the rendered availability table.
+Meant to be run once from a GitHub Actions runner (the sandbox proxy blocks
+this domain) to answer: does the site expose a JSON endpoint, or is scraping
+the rendered HTML the only option?
+
+v2: v1 only logged responses whose URL contained "localtenniscourts.com",
+which would have hidden a data API hosted on a different domain (e.g. a
+Supabase/backend host). This version logs every response host+status, and
+fetches bodies for anything that looks like data (JSON content-type, or a
+non-static-asset extension).
 
 Usage: python scripts/probe_ltc.py
 """
 
 import json
 import sys
+from urllib.parse import urlparse
 
 from playwright.sync_api import sync_playwright
 
 URL = "https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor"
 
-INTERESTING_HINTS = ("api", "json", "graphql", "ajax", "wp-json", "availability", "court", "slot")
+STATIC_EXTENSIONS = (
+    ".js",
+    ".css",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".svg",
+    ".ico",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".webmanifest",
+)
 
 
-def looks_interesting(url: str, content_type: str) -> bool:
-    lowered = url.lower()
-    if "json" in content_type.lower():
-        return True
-    return any(hint in lowered for hint in INTERESTING_HINTS)
+def is_static_asset(url: str) -> bool:
+    path = urlparse(url).path.lower()
+    return path.endswith(STATIC_EXTENSIONS)
 
 
 def main() -> int:
-    responses: list[dict] = []
+    all_responses: list[dict] = []
+    data_responses: list[dict] = []
 
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page()
 
         def on_response(response):
+            ctype = ""
             try:
                 ctype = response.headers.get("content-type", "")
             except Exception:
-                ctype = ""
-            if looks_interesting(response.url, ctype) and "localtenniscourts.com" in response.url:
-                body_snippet = None
-                try:
-                    if "json" in ctype.lower():
-                        body_snippet = response.text()[:4000]
-                except Exception as e:  # noqa: BLE001 - diagnostic only
-                    body_snippet = f"<could not read body: {e}>"
-                responses.append(
-                    {
-                        "url": response.url,
-                        "status": response.status,
-                        "content_type": ctype,
-                        "body_snippet": body_snippet,
-                    }
-                )
+                pass
+
+            all_responses.append(
+                {"url": response.url, "status": response.status, "content_type": ctype}
+            )
+
+            if is_static_asset(response.url) or "google-analytics" in response.url:
+                return
+
+            body_snippet = None
+            try:
+                if "json" in ctype.lower() or "text" in ctype.lower():
+                    body_snippet = response.text()[:6000]
+            except Exception as e:  # noqa: BLE001 - diagnostic only
+                body_snippet = f"<could not read body: {e}>"
+
+            data_responses.append(
+                {
+                    "url": response.url,
+                    "status": response.status,
+                    "content_type": ctype,
+                    "body_snippet": body_snippet,
+                }
+            )
 
         page.on("response", on_response)
 
@@ -62,32 +89,29 @@ def main() -> int:
         page.wait_for_timeout(3000)  # let any late XHRs settle
 
         html = page.content()
-        with open("/tmp/ltc_rendered.html", "w", encoding="utf-8") as f:
-            f.write(html)
+
+        # Try to grab the rendered table's outerHTML directly, which is more
+        # useful than grepping the full page HTML.
+        table_html = None
+        try:
+            table_html = page.eval_on_selector("table", "el => el.outerHTML")
+        except Exception as e:  # noqa: BLE001 - diagnostic only
+            table_html = f"<no table found: {e}>"
 
         browser.close()
 
-    print("\n--- INTERESTING NETWORK RESPONSES ---")
-    print(json.dumps(responses, indent=2, default=str))
+    print("\n--- ALL RESPONSE HOSTS (url, status, content-type) ---")
+    for r in all_responses:
+        print(f"{r['status']:4} {r['content_type']:40} {r['url']}")
+
+    print("\n--- NON-STATIC RESPONSE BODIES (candidate data/API calls) ---")
+    print(json.dumps(data_responses, indent=2, default=str))
+
+    print("\n--- RENDERED TABLE outerHTML ---")
+    print(table_html)
 
     print("\n--- RENDERED HTML LENGTH ---")
     print(len(html))
-
-    print("\n--- RENDERED HTML SNIPPET (first 6000 chars) ---")
-    print(html[:6000])
-
-    # Look for Wednesday-shaped text anywhere in the rendered DOM as a sanity check
-    print("\n--- 'wed' MENTIONS IN RENDERED HTML ---")
-    lowered_html = html.lower()
-    idx = 0
-    count = 0
-    while count < 10:
-        idx = lowered_html.find("wed", idx)
-        if idx == -1:
-            break
-        print(html[max(0, idx - 60) : idx + 60].replace("\n", " "))
-        idx += 3
-        count += 1
 
     return 0
 

@@ -1,0 +1,47 @@
+name: Probe localtenniscourts.com
+
+on:
+  push:
+    branches:
+      - claude/great-wright-uc4yhh
+    paths:
+      - .github/workflows/probe-localtenniscourts.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch page HTML
+        run: |
+          curl -sSL "https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor" \
+            -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+            -H "Accept: text/html,application/xhtml+xml" \
+            -o page.html -w "HTTP %{http_code}\n"
+          echo "--- byte count ---"
+          wc -c page.html
+
+      - name: Show full HTML
+        run: cat page.html
+
+      - name: Grep for API/data hints
+        run: |
+          echo "--- script src tags ---"
+          grep -oE '<script[^>]*src="[^"]*"' page.html || true
+          echo "--- inline api/json/fetch/xhr mentions ---"
+          grep -ioE '(https?://[a-z0-9.-]+)?/[a-z0-9_./-]*api[a-z0-9_./-]*' page.html || true
+          grep -ioE 'fetch\([^)]*\)' page.html || true
+          grep -ioE '__NEXT_DATA__|__NUXT__|window\.__[A-Za-z_]*' page.html || true
+          echo "--- any .json references ---"
+          grep -ioE '[a-zA-Z0-9_./-]*\.json[a-zA-Z0-9?=&_./-]*' page.html || true
+
+      - name: Try robots.txt and common API roots
+        run: |
+          for path in robots.txt sitemap.xml api api/courts api/availability data.json; do
+            echo "=== /$path ==="
+            curl -sSL -o /dev/null -w "HTTP %{http_code}  %{url_effective}\n" "https://localtenniscourts.com/$path" \
+              -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            sleep 1
+          done

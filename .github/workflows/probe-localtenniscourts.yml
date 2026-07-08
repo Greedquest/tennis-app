@@ -14,34 +14,51 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch page HTML
+      - name: Fetch page HTML three times (check if load error is transient)
         run: |
-          curl -sSL "https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor" \
-            -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
-            -H "Accept: text/html,application/xhtml+xml" \
-            -o page.html -w "HTTP %{http_code}\n"
-          echo "--- byte count ---"
-          wc -c page.html
+          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+          for i in 1 2 3; do
+            echo "=== attempt $i ==="
+            curl -sSL "https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor" \
+              -A "$UA" -H "Accept: text/html,application/xhtml+xml" \
+              -o "page$i.html" -w "HTTP %{http_code}\n"
+            echo "tableData/error snippet:"
+            grep -oE 'tableData:[a-zA-Z0-9_.]*,venues' "page$i.html" | head -1 || true
+            grep -oE 'error:\$R\[[0-9]+\]=\{message:"[^"]*"\}' "page$i.html" || echo "no error found"
+            sleep 3
+          done
 
-      - name: Show full HTML
-        run: cat page.html
+      - name: Show full HTML (first attempt)
+        run: cat page1.html
 
       - name: Grep for API/data hints
         run: |
           echo "--- script src tags ---"
-          grep -oE '<script[^>]*src="[^"]*"' page.html || true
+          grep -oE '<script[^>]*src="[^"]*"' page1.html || true
           echo "--- inline api/json/fetch/xhr mentions ---"
-          grep -ioE '(https?://[a-z0-9.-]+)?/[a-z0-9_./-]*api[a-z0-9_./-]*' page.html || true
-          grep -ioE 'fetch\([^)]*\)' page.html || true
-          grep -ioE '__NEXT_DATA__|__NUXT__|window\.__[A-Za-z_]*' page.html || true
+          grep -ioE '(https?://[a-z0-9.-]+)?/[a-z0-9_./-]*api[a-z0-9_./-]*' page1.html || true
+          grep -ioE 'fetch\([^)]*\)' page1.html || true
+          grep -ioE '__NEXT_DATA__|__NUXT__|window\.__[A-Za-z_]*' page1.html || true
           echo "--- any .json references ---"
-          grep -ioE '[a-zA-Z0-9_./-]*\.json[a-zA-Z0-9?=&_./-]*' page.html || true
+          grep -ioE '[a-zA-Z0-9_./-]*\.json[a-zA-Z0-9?=&_./-]*' page1.html || true
 
       - name: Try robots.txt and common API roots
         run: |
-          for path in robots.txt sitemap.xml api api/courts api/availability data.json; do
+          for path in robots.txt sitemap.xml api api/courts api/availability data.json _serverFn api/trpc; do
             echo "=== /$path ==="
             curl -sSL -o /dev/null -w "HTTP %{http_code}  %{url_effective}\n" "https://localtenniscourts.com/$path" \
               -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             sleep 1
           done
+
+      - name: Fetch main JS bundle and grep for API/backend hints
+        run: |
+          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+          curl -sSL "https://localtenniscourts.com/assets/main-DLXMVjOc.js" -A "$UA" -o main.js -w "HTTP %{http_code}  bytes=%{size_download}\n"
+          curl -sSL "https://localtenniscourts.com/assets/index-Bf7utVcV.js" -A "$UA" -o index.js -w "HTTP %{http_code}  bytes=%{size_download}\n"
+          echo "--- searching bundles for backend hints ---"
+          grep -oE '(https?://[a-zA-Z0-9.-]+)' main.js index.js | sort -u || true
+          grep -ioE '/_serverFn/[a-zA-Z0-9_/-]*' main.js index.js | sort -u || true
+          grep -ioE 'supabase|convex|trpc|better-admin|bookings\.better|graphql' main.js index.js | sort -u || true
+          echo "--- sample around 'tableData' fetch logic in index.js ---"
+          grep -oE '.{80}fetchTableData.{80}|.{80}getTableData.{80}|.{80}fetch\(.{120}' index.js | head -20 || true

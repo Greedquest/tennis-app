@@ -31,3 +31,15 @@ jobs:
             echo "=== $path ==="
             curl -sL -o /dev/null -w "  %{http_code}\n" "https://localtenniscourts.com/$path" || true
           done
+
+      - name: Inspect JS bundle for API endpoints
+        run: |
+          curl -sL "https://localtenniscourts.com/assets/main-DLXMVjOc.js" -o main.js -w "main.js HTTP: %{http_code} bytes: %{size_download}\n"
+          curl -sL "https://localtenniscourts.com/assets/index-Bf7utVcV.js" -o index.js -w "index.js HTTP: %{http_code} bytes: %{size_download}\n"
+          echo "--- https:// URLs referenced in bundles ---"
+          grep -oE 'https?://[A-Za-z0-9_.:/%-]+' main.js index.js | sort -u | head -200
+          echo "--- fetch(/axios(/api-looking string literals ---"
+          grep -oE '"[/][A-Za-z0-9_.:/%-]*api[A-Za-z0-9_.:/%-]*"' main.js index.js | sort -u | head -100
+          grep -oE "'[/][A-Za-z0-9_.:/%-]*api[A-Za-z0-9_.:/%-]*'" main.js index.js | sort -u | head -100
+          echo "--- better-admin / bookings.better / supabase / firebase hints ---"
+          grep -ioE '(better-admin|bookings\.better|supabase|firebase|\.functions\.net|vercel|netlify)[A-Za-z0-9_.:/%-]*' main.js index.js | sort -u | head -100

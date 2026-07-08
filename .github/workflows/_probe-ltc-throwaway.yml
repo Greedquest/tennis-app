@@ -6,6 +6,7 @@ on:
       - claude/great-wright-cnoylg
     paths:
       - '.github/workflows/_probe-ltc-throwaway.yml'
+      - 'scripts/_probe_ltc_throwaway.py'
 
 permissions:
   contents: read

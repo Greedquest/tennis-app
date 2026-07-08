@@ -4,7 +4,9 @@ name: Poller
 on:
   workflow_dispatch:
   schedule:
-    - cron: '* * * * *'
+    # Every 5 minutes, Wednesdays only, 11:00-22:55 UTC (covers noon-22:00
+    # local time across both GMT and BST without needing DST-aware cron).
+    - cron: '*/5 11-22 * * 3'
 
 # prevent overlap
 concurrency:

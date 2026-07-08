@@ -93,6 +93,52 @@ def key_of(row: dict) -> str:
     return f"{date_str}|{time_str}|{venue_str}"
 
 
+def _hour_of_12h(time_12h: str) -> int:
+    """Parse a 12-hour clock string like '7:00pm' into its 24-hour hour component."""
+    return datetime.strptime(time_12h.strip().upper(), "%I:%M%p").hour
+
+
+def filter_watch_window(df: pl.DataFrame, weekday: int, hour_from: int) -> pl.DataFrame:
+    """
+    Filter to rows on the given weekday starting at or after hour_from.
+
+    Args:
+        df: A tabularised DataFrame (see tabularise()).
+        weekday: Python weekday convention, Monday=0 .. Sunday=6.
+        hour_from: 24-hour clock hour; rows starting before this are excluded.
+    """
+    if df.is_empty():
+        return df
+    return df.filter(
+        (pl.col("Date").dt.weekday() == weekday + 1)  # polars: Monday=1 .. Sunday=7
+        & (pl.col("Time").map_elements(_hour_of_12h, return_dtype=pl.Int64) >= hour_from)
+    )
+
+
+def newly_available_slots(curr: pl.DataFrame, prev: pl.DataFrame) -> pl.DataFrame:
+    """
+    Return the rows in curr whose slot flipped from booked (<=0 spaces) to free (>0).
+
+    A row with no matching row in prev (first sighting) is excluded — there's
+    no baseline to compare against, so it can't be "newly" free.
+    """
+    if curr.is_empty() or prev.is_empty():
+        return curr.clear()
+
+    prev_map = {key_of(row): row for row in prev.to_dicts()}
+    newly_free_rows = []
+    for row in curr.to_dicts():
+        prior = prev_map.get(key_of(row))
+        if prior is None:
+            continue
+        if (prior.get("Spaces") or 0) <= 0 and (row.get("Spaces") or 0) > 0:
+            newly_free_rows.append(row)
+
+    if not newly_free_rows:
+        return curr.clear()
+    return pl.DataFrame(newly_free_rows, schema=curr.schema)
+
+
 def diff_tables(curr: pl.DataFrame, prev: pl.DataFrame) -> list[str]:
     """
     Compare two DataFrames and return keys of rows that changed.

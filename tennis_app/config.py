@@ -20,4 +20,10 @@ logging.basicConfig(
 VENUES = [
     {"venue": "islington-tennis-centre", "court": "tennis-court-indoor"},
     {"venue": "islington-tennis-centre", "court": "tennis-court-outdoor"},
+    {"venue": "islington-tennis-centre", "court": "highbury-tennis"},  # Highbury Fields
 ]
+
+# Watch window: alert only on slots starting at/after WATCH_HOUR_FROM on
+# WATCH_WEEKDAY (Monday=0 .. Sunday=6; default Wednesday).
+WATCH_WEEKDAY = int(os.getenv("WATCH_WEEKDAY", "2"))
+WATCH_HOUR_FROM = int(os.getenv("WATCH_HOUR_FROM", "19"))

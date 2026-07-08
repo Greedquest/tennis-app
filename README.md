@@ -2,6 +2,19 @@
 
 A Python application for polling tennis court availability and sending email notifications via Gmail.
 
+## Wednesday-evening court watch
+
+Alerts when a tennis slot starting at or after 19:00 on Wednesday flips from
+booked to free. See `CLAUDE.md` for the full rule, schedule, and venues.
+
+Two ways to run it:
+
+- **GitHub Actions** (`.github/workflows/poller.yml`): runs every 5 minutes,
+  Wednesdays only, and emails via Gmail SMTP.
+- **Local script** (`scripts/watch_local.py`): run it yourself on a cron
+  schedule (or Termux on Android) and get a desktop/push notification
+  instead of email — no GH Actions secrets required.
+
 ## Dashboard
 
 A Marimo notebook has been set up to help debug the app.

@@ -8,21 +8,34 @@
 
 Target behavior for this routine is to alert when a tennis slot starting
 ≥19:00 on **Wednesday** flips from booked to free (alert only — no booking).
-Current repository code is still on the generic poller/diff flow described
-below unless and until the Wednesday-watch implementation lands.
+This has landed: `tennis_app.transform.filter_watch_window` +
+`newly_available_slots` implement the rule; `pipeline.run()` uses them instead
+of generic change detection.
 
 ## What the routine does
 
-- Poller (current): `.github/workflows/poller.yml`, cron `* * * * *` (every minute).
-- Each run: fetch → `tennis_app/pipeline.run()` → email via Gmail SMTP if a watched slot opened up, else log quietly and exit.
-- Alerting (current) uses generic change detection (`diff_tables`) and emails on any detected row change.
+- Poller: `.github/workflows/poller.yml`, cron `*/5 11-22 * * 3` — every 5
+  minutes, Wednesdays only, 11:00-22:55 UTC (covers noon-22:00 local across
+  both GMT and BST without DST-aware cron).
+- Each run: fetch → `tennis_app/pipeline.run()` → email via Gmail SMTP if a
+  watched slot opened up, else log quietly and exit.
+- Alerting: `newly_available_slots()` only fires on `Spaces` transitions from
+  `<=0` (booked) to `>0` (free) within the watch window
+  (`WATCH_WEEKDAY`/`WATCH_HOUR_FROM` in `config.py`, default Wed/19). First-time
+  sightings of a slot are ignored (no baseline to compare).
 - Cross-run cache: `actions/cache` (keyed per run_id + prefix restore) holds `cache/state.json`. If it's ever lost, the next run has no baseline and correctly stays silent.
 - Secrets the routine needs: `EMAIL_FROM`, `EMAIL_TO`, `APP_PASSWORD` (GH Actions secrets).
+- Local alternative: `scripts/watch_local.py` runs the same fetch/filter logic
+  on a schedule of your own (cron/Termux) and fires a desktop notification
+  instead of email — for when you'd rather not touch GH Actions secrets.
 
 ## Venues watched
 
 - `islington-tennis-centre` / `tennis-court-indoor` + `tennis-court-outdoor`.
-- Highbury Fields (`islington-parks` / `tennis-court-outdoor`) is currently a probed candidate only; it's not in `tennis_app/config.py` yet.
+- Highbury Fields is `islington-tennis-centre` / `highbury-tennis` (confirmed
+  via localtenniscourts.com's SSR-embedded `booking_url` payload — it's the
+  same Better Admin backend, just a different `court` slug under the same
+  `venue`. Not `islington-parks`, which was an earlier unconfirmed guess).
 
 ## Gotchas when working on this routine
 

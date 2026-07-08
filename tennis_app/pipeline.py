@@ -6,8 +6,9 @@ from typing import Any
 import polars as pl
 
 from tennis_app.cache import load_prev_rows, save_rows
+from tennis_app.config import WATCH_HOUR_FROM, WATCH_WEEKDAY
 from tennis_app.notify import send_email
-from tennis_app.transform import diff_tables, key_of, tabularise
+from tennis_app.transform import filter_watch_window, newly_available_slots, tabularise
 
 
 def run(
@@ -20,8 +21,9 @@ def run(
     Execute the full pipeline:
       1. Transform raw API records into a clean table
       2. Load the previously-cached table
-      3. Diff the two
-      4. Optionally send an email for any changes
+      3. Filter both to the watch window (WATCH_WEEKDAY at/after WATCH_HOUR_FROM)
+         and find slots that flipped from booked to free
+      4. Optionally send an email for any such slots
       5. Save the current table to cache
 
     Args:
@@ -38,25 +40,22 @@ def run(
     logging.info("Loading previous rows from cache…")
     prev_df = load_prev_rows(cache_path)
 
-    logging.info("Computing changes…")
-    changed_keys = diff_tables(curr_df, prev_df)
+    watched_curr = filter_watch_window(curr_df, WATCH_WEEKDAY, WATCH_HOUR_FROM)
+    watched_prev = filter_watch_window(prev_df, WATCH_WEEKDAY, WATCH_HOUR_FROM)
 
-    if changed_keys:
-        curr_map = {key_of(row): i for i, row in enumerate(curr_df.to_dicts())}
-        changed_indices = [curr_map[k] for k in changed_keys if k in curr_map]
+    logging.info("Checking for newly-available watched slots…")
+    newly_free = newly_available_slots(watched_curr, watched_prev)
 
-        if changed_indices:
-            changed_df = curr_df[changed_indices]
-
-            if notify:
-                logging.info("Sending email with %d changed keys…", len(changed_keys))
-                send_email("Tennis availability changes", changed_df)
-            else:
-                logging.info("Changes detected (%d) but notifications disabled.", len(changed_keys))
+    if not newly_free.is_empty():
+        if notify:
+            logging.info("Sending email for %d newly-available slot(s)…", len(newly_free))
+            send_email("Tennis slots just opened up", newly_free)
         else:
-            logging.warning("Changed keys found but no matching rows to display")
+            logging.info(
+                "%d newly-available slot(s) detected but notifications disabled.", len(newly_free)
+            )
     else:
-        logging.info("No changes detected; no email.")
+        logging.info("No newly-available watched slots.")
 
     logging.info("Saving current rows back to cache…")
     save_rows(cache_path, curr_df)

@@ -62,8 +62,8 @@ def send_email(subject: str, changed_rows: pl.DataFrame) -> None:
     table_html = _dataframe_to_html(changed_rows.select(display_columns))
 
     body = f"""
-    <h2>Tennis Court Availability Changes</h2>
-    <p>{len(changed_rows)} availability change(s) detected:</p>
+    <h2>Tennis Slots Just Opened Up</h2>
+    <p>{len(changed_rows)} watched slot(s) just became available:</p>
     {table_html}
     """
 

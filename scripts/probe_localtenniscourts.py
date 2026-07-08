@@ -15,8 +15,10 @@ only option.
 """
 
 import json
+import re
 import sys
 
+import requests
 from playwright.sync_api import sync_playwright
 
 URL = "https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor"
@@ -24,10 +26,32 @@ URL = "https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centr
 
 def main() -> int:
     calls: list[dict] = []
+    requests_seen: list[dict] = []
+    failures: list[dict] = []
+    script_srcs: list[str] = []
 
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page()
+
+        def on_request(request):
+            if request.resource_type in ("image", "stylesheet", "font", "media"):
+                return
+            requests_seen.append(
+                {"method": request.method, "url": request.url, "resource_type": request.resource_type}
+            )
+            if request.resource_type == "script":
+                script_srcs.append(request.url)
+
+        def on_request_failed(request):
+            failures.append(
+                {
+                    "url": request.url,
+                    "method": request.method,
+                    "resource_type": request.resource_type,
+                    "failure": request.failure,
+                }
+            )
 
         def on_response(response):
             req = response.request
@@ -51,16 +75,24 @@ def main() -> int:
                     entry["body_error"] = str(e)
             calls.append(entry)
 
+        page.on("request", on_request)
+        page.on("requestfailed", on_request_failed)
         page.on("response", on_response)
 
         print(f"Navigating to {URL} ...", file=sys.stderr)
         page.goto(URL, wait_until="networkidle", timeout=30000)
-        page.wait_for_timeout(3000)  # settle any late XHRs
+        page.wait_for_timeout(5000)  # settle any late XHRs / retries
 
         html = page.content()
         body_text = page.inner_text("body")
 
         browser.close()
+
+    print("\n--- ALL NON-STATIC REQUESTS ISSUED ---")
+    print(json.dumps(requests_seen, indent=2, default=str))
+
+    print("\n--- FAILED REQUESTS ---")
+    print(json.dumps(failures, indent=2, default=str))
 
     print("\n--- NETWORK CALLS (JSON) ---")
     print(json.dumps(calls, indent=2, default=str))
@@ -68,8 +100,6 @@ def main() -> int:
     print(f"\n--- RENDERED HTML LENGTH: {len(html)} ---")
 
     print("\n--- SCRIPT TAGS (src or inline snippets) ---")
-    import re
-
     for m in re.finditer(r"<script[^>]*>(.*?)</script>", html, re.S):
         tag = m.group(0)
         if "src=" in tag[:200]:
@@ -90,6 +120,35 @@ def main() -> int:
     for m in re.finditer(r".{200}(?:wednesday|court|available|book).{200}", html, re.I | re.S):
         print(m.group(0))
         print("---")
+
+    print("\n--- SEARCHING JS BUNDLES FOR API URLS / FETCH CALLS ---")
+    for src in dict.fromkeys(script_srcs):  # de-dupe, keep order
+        if not src.startswith("https://localtenniscourts.com/"):
+            continue  # skip third-party scripts (analytics, widgets)
+        try:
+            r = requests.get(src, timeout=15)
+            body = r.text
+        except Exception as e:  # noqa: BLE001 - diagnostic tool
+            print(f"{src}: FETCH FAILED: {e}")
+            continue
+        print(f"\n{src} ({len(body)} bytes)")
+        # Look for absolute URLs and common API-ish substrings
+        urls = set(re.findall(r"https?://[a-zA-Z0-9.\-]+(?:/[^\"'\s)]*)?", body))
+        api_like = {
+            u
+            for u in urls
+            if "localtenniscourts.com" not in u
+            and "w3.org" not in u
+            and "googletagmanager" not in u
+        }
+        if api_like:
+            print("External URLs referenced:")
+            for u in sorted(api_like):
+                print(" ", u)
+        for kw in ("/api/", "supabase", "workers.dev", "fetch(", "axios", "VITE_API"):
+            idxs = [m.start() for m in re.finditer(re.escape(kw), body)]
+            for idx in idxs[:5]:
+                print(f"  ...{kw!r} @ {idx}: {body[max(0, idx - 80):idx + 120]!r}")
 
     return 0
 

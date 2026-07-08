@@ -83,6 +83,30 @@ def main() -> int:
         for h in hits[:80]:
             print(f"    {h}")
 
+    # Broader pass: fetch/axios call sites and court/venue-ish path fragments,
+    # in case the base URL is built from env vars rather than a literal string.
+    CALL_SITE_RE = re.compile(r'.{0,60}(?:fetch\(|axios\.(?:get|post)\()')
+    PATH_FRAGMENT_RE = re.compile(
+        r'["\']([^"\']{0,80}(?:court|venue|booking|slot|highbury|islington|clissold|regent|finsbury|hackney|rosemary)[^"\']{0,80})["\']',
+        re.IGNORECASE,
+    )
+    for s in all_js:
+        if s.startswith("http") and "localtenniscourts.com" not in s:
+            continue
+        url = s if s.startswith("http") else (BASE.rstrip("/") + "/" + s.lstrip("/"))
+        try:
+            body = requests.get(url, headers=HEADERS, timeout=20).text
+        except Exception:
+            continue
+        call_sites = CALL_SITE_RE.findall(body)
+        print(f"\n--- {len(call_sites)} fetch/axios call sites in {url} ---")
+        for c in call_sites[:30]:
+            print(f"    ...{c}")
+        frags = sorted(set(PATH_FRAGMENT_RE.findall(body)))
+        print(f"--- {len(frags)} court/venue-ish string fragments in {url} ---")
+        for f in frags[:60]:
+            print(f"    {f}")
+
     # A few common guesses, just in case.
     for guess in ["api/availability", "api/courts", "api/slots", "api/venues", "robots.txt", "sitemap.xml"]:
         try:

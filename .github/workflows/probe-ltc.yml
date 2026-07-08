@@ -12,51 +12,57 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch page HTML
-        run: |
-          curl -sL -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
-            "https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor" \
-            -o page.html -w "HTTP status: %{http_code}\n"
-          echo "--- bytes: $(wc -c < page.html) ---"
-          echo "--- script/link src references ---"
-          grep -oE '(src|href)="[^"]+"' page.html | sort -u | head -100
-          echo "--- inline JSON / __NEXT_DATA__ / __NUXT__ / window.__ hints ---"
-          grep -oE '(__NEXT_DATA__|__NUXT__|window\.__[A-Za-z_]+|api[/.][A-Za-z0-9_./-]*)' page.html | sort -u | head -50
-          echo "--- first 3000 chars of HTML ---"
-          head -c 3000 page.html
-      - name: Try common API guesses
-        continue-on-error: true
-        run: |
-          for path in "api/venues" "api/courts" "api/availability" "api/slots" "_next/data"; do
-            echo "=== $path ==="
-            curl -sL -o /dev/null -w "  %{http_code}\n" "https://localtenniscourts.com/$path" || true
-          done
+      - name: Setup Python
+        uses: actions/setup-python@v6.1.0
+        with:
+          python-version: '3.12'
 
-      - name: Inspect JS bundle for API endpoints
+      - name: Install Playwright
         run: |
-          curl -sL "https://localtenniscourts.com/assets/main-DLXMVjOc.js" -o main.js -w "main.js HTTP: %{http_code} bytes: %{size_download}\n"
-          curl -sL "https://localtenniscourts.com/assets/index-Bf7utVcV.js" -o index.js -w "index.js HTTP: %{http_code} bytes: %{size_download}\n"
-          echo "--- https:// URLs referenced in bundles ---"
-          grep -oE 'https?://[A-Za-z0-9_.:/%-]+' main.js index.js | sort -u | head -200
-          echo "--- fetch(/axios(/api-looking string literals ---"
-          grep -oE '"[/][A-Za-z0-9_.:/%-]*api[A-Za-z0-9_.:/%-]*"' main.js index.js | sort -u | head -100
-          grep -oE "'[/][A-Za-z0-9_.:/%-]*api[A-Za-z0-9_.:/%-]*'" main.js index.js | sort -u | head -100
-          echo "--- better-admin / bookings.better / supabase / firebase hints ---"
-          grep -ioE '(better-admin|bookings\.better|supabase|firebase|\.functions\.net|vercel|netlify|railway|onrender|fly\.dev|workers\.dev|convex|planetscale|neon\.tech|herokuapp|amazonaws|cloudflareaccess|pages\.dev)[A-Za-z0-9_.:/%-]*' main.js index.js | sort -u | head -100
-          echo "--- other asset/chunk references (lazy-loaded modules) ---"
-          grep -oE '/assets/[A-Za-z0-9_.-]+\.(js|css)' main.js index.js | sort -u | head -100
-          echo "--- venue/highbury/islington keyword context ---"
-          grep -oE '.{40}(highbury|islington|clissold|better-admin|bookings\.better).{40}' main.js index.js | sort -u | head -60
-          echo "--- generic domain-looking strings (word.word.tld) ---"
-          grep -oE '[A-Za-z0-9-]+\.[A-Za-z0-9-]+\.(com|co\.uk|org\.uk|dev|app|io|net)' main.js index.js | sort -u | head -100
-          echo "--- baseURL / VITE_ / import.meta.env hints ---"
-          grep -oE '(baseURL|base_url|VITE_[A-Z_]+|import\.meta\.env\.[A-Z_]+)' main.js index.js | sort -u | head -100
-          echo "--- fetch( / XMLHttpRequest / axios.create / queryFn context ---"
-          grep -oE '.{20}(fetch\(|XMLHttpRequest|axios\.create|queryFn *:|queryKey *:).{60}' main.js index.js | sort -u | head -100
-          echo "--- dynamic import() of other chunks ---"
-          grep -oE 'import\("[^"]+"\)' main.js index.js | sort -u | head -50
-          grep -oE "import\('[^']+'\)" main.js index.js | sort -u | head -50
-          echo "--- all quoted absolute-path strings starting with / (len>3), sample ---"
-          grep -oE '"/[A-Za-z0-9_-]{3,40}"' main.js index.js | sort -u | head -150
-          echo "--- 'localtenniscourts' backend hints (workers/pages functions) ---"
-          grep -oE '.{30}localtenniscourts\.com[A-Za-z0-9_./%-]*.{10}' main.js index.js | sort -u | head -40
+          pip install playwright
+          playwright install --with-deps chromium
+
+      - name: Capture network requests
+        run: |
+          python3 - <<'EOF'
+          import json
+          from playwright.sync_api import sync_playwright
+
+          requests_log = []
+
+          def on_request(req):
+              requests_log.append({"type": "request", "method": req.method, "url": req.url})
+
+          def on_response(res):
+              try:
+                  ct = res.headers.get("content-type", "")
+              except Exception:
+                  ct = ""
+              entry = {"type": "response", "status": res.status, "url": res.url, "content_type": ct}
+              if "json" in ct or "api" in res.url.lower():
+                  try:
+                      entry["body_snippet"] = res.text()[:2000]
+                  except Exception as e:
+                      entry["body_err"] = str(e)
+              requests_log.append(entry)
+
+          with sync_playwright() as p:
+              browser = p.chromium.launch()
+              page = browser.new_page()
+              page.on("request", on_request)
+              page.on("response", on_response)
+              page.goto(
+                  "https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor",
+                  wait_until="networkidle",
+                  timeout=30000,
+              )
+              page.wait_for_timeout(4000)
+              browser.close()
+
+          non_asset = [
+              r for r in requests_log
+              if not any(seg in r["url"] for seg in ["/assets/", "googletagmanager", "buymeacoffee", "favicon", "font", "cdn-cgi", ".css", ".png", ".ico", ".svg", ".webmanifest"])
+          ]
+          print(f"Total requests: {len(requests_log)}; non-asset: {len(non_asset)}")
+          print(json.dumps(non_asset, indent=2)[:8000])
+          EOF

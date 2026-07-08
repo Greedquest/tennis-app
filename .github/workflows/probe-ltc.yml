@@ -42,4 +42,12 @@ jobs:
           grep -oE '"[/][A-Za-z0-9_.:/%-]*api[A-Za-z0-9_.:/%-]*"' main.js index.js | sort -u | head -100
           grep -oE "'[/][A-Za-z0-9_.:/%-]*api[A-Za-z0-9_.:/%-]*'" main.js index.js | sort -u | head -100
           echo "--- better-admin / bookings.better / supabase / firebase hints ---"
-          grep -ioE '(better-admin|bookings\.better|supabase|firebase|\.functions\.net|vercel|netlify)[A-Za-z0-9_.:/%-]*' main.js index.js | sort -u | head -100
+          grep -ioE '(better-admin|bookings\.better|supabase|firebase|\.functions\.net|vercel|netlify|railway|onrender|fly\.dev|workers\.dev|convex|planetscale|neon\.tech|herokuapp|amazonaws|cloudflareaccess|pages\.dev)[A-Za-z0-9_.:/%-]*' main.js index.js | sort -u | head -100
+          echo "--- other asset/chunk references (lazy-loaded modules) ---"
+          grep -oE '/assets/[A-Za-z0-9_.-]+\.(js|css)' main.js index.js | sort -u | head -100
+          echo "--- venue/highbury/islington keyword context ---"
+          grep -oE '.{40}(highbury|islington|clissold|better-admin|bookings\.better).{40}' main.js index.js | sort -u | head -60
+          echo "--- generic domain-looking strings (word.word.tld) ---"
+          grep -oE '[A-Za-z0-9-]+\.[A-Za-z0-9-]+\.(com|co\.uk|org\.uk|dev|app|io|net)' main.js index.js | sort -u | head -100
+          echo "--- baseURL / VITE_ / import.meta.env hints ---"
+          grep -oE '(baseURL|base_url|VITE_[A-Z_]+|import\.meta\.env\.[A-Z_]+)' main.js index.js | sort -u | head -100

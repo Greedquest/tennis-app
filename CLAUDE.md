@@ -14,7 +14,7 @@ This is now the live implementation (landed via `filter_wednesday_evening` +
 
 ## What the routine does
 
-- Poller: `.github/workflows/poller.yml`, cron `* * * * *` (every minute).
+- Poller: `.github/workflows/poller.yml`, cron `*/5 11-21 * * 3` + `0 22 * * 3` — Wednesday only, every 5 minutes, 12:00-22:00 Europe/London (window widened to 11:00-22:00 UTC to stay correct across GMT/BST without tracking DST).
 - Each run: fetch (7 days ahead, so the upcoming Wednesday is always in range) → `tennis_app/pipeline.run()` → email via Gmail SMTP if a watched slot flipped from booked to free, else log quietly and exit.
 - Alerting filters raw records to Wednesday slots starting ≥19:00 (`filter_wednesday_evening`), then emails only on a 0-spaces→>0-spaces flip (`diff_booked_to_free`). Non-Wednesday and daytime slots never reach the diff, so they can't trigger an email.
 - Cross-run cache: `actions/cache` (keyed per run_id + prefix restore) holds `cache/state.json` — now scoped to Wednesday-evening rows only. If it's ever lost, the next run has no baseline and correctly stays silent.
@@ -25,6 +25,18 @@ This is now the live implementation (landed via `filter_wednesday_evening` +
 - `islington-tennis-centre` / `tennis-court-indoor` + `tennis-court-outdoor`.
 - Highbury Fields (`islington-parks` / `tennis-court-outdoor`) is now active in `tennis_app/config.py`.
 - `localtenniscourts.com` (a third-party aggregator UI) was evaluated as a possible data source and rejected: it's a client-rendered Next.js app with no JSON API, and its own server-side data fetch was erroring out ("Oops! There was a problem loading the court availability data") when probed from GitHub Actions. Better Admin remains the direct, reliable source.
+
+## Alert channel
+
+Email (Gmail SMTP via `EMAIL_FROM`/`EMAIL_TO`/`APP_PASSWORD`), sent from the
+existing GitHub Actions poller — not a local desktop notification. A local
+cron/Tasker script was considered (per a docs brief asking for one) but
+rejected: this agent's environment can only write code, not install or run
+anything on Mr Hall's own device, and `localtenniscourts.com` (the brief's
+suggested lighter-weight source) turned out to have no JSON API anyway (see
+above), so a local script would still need the same Better Admin calls this
+repo already makes from the cloud. Revisit only if email proves too slow/easy
+to miss in practice.
 
 ## Gotchas when working on this routine
 

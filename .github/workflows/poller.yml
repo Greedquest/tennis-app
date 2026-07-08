@@ -4,7 +4,11 @@ name: Poller
 on:
   workflow_dispatch:
   schedule:
-    - cron: '* * * * *'
+    # Wednesday only, every 5 min, 12:00-22:00 Europe/London. Cron runs in
+    # UTC, so the window is widened by 1h on each side (11:00-22:00 UTC) to
+    # stay safe across the GMT/BST boundary rather than tracking DST.
+    - cron: '*/5 11-21 * * 3'
+    - cron: '0 22 * * 3'
 
 # prevent overlap
 concurrency:

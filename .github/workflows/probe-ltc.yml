@@ -23,5 +23,12 @@ jobs:
       - name: Install deps
         run: pip install requests
 
-      - name: Probe
+      - name: Probe LTC
         run: python scripts/probe_ltc.py
+
+      - name: Probe Better Admin for highbury-tennis slug
+        run: |
+          python scripts/probe_venue.py \
+            islington-tennis-centre:tennis-court-outdoor \
+            islington-tennis-centre:highbury-tennis \
+            --days 7 --delay 1.5

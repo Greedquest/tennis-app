@@ -63,10 +63,15 @@ jobs:
                   wait_until="networkidle",
                   timeout=30000,
               )
-              page.wait_for_timeout(5000)
+              page.wait_for_timeout(3000)
+              page.mouse.wheel(0, 3000)
+              page.wait_for_timeout(12000)
               html = page.content()
               with open("rendered.html", "w") as f:
                   f.write(html)
+              body_text = page.inner_text("body")
+              with open("rendered_text.txt", "w") as f:
+                  f.write(body_text)
               browser.close()
 
           # Filter to interesting (non-asset) requests
@@ -87,5 +92,23 @@ jobs:
 
       - name: Show rendered HTML sample
         run: |
-          echo "--- rendered.html first 300 lines ---"
-          head -n 300 rendered.html || echo "no rendered.html"
+          echo "--- rendered.html byte count ---"
+          wc -c rendered.html || echo "no rendered.html"
+          echo "--- rendered_text.txt (visible body text) full dump ---"
+          cat rendered_text.txt || echo "no rendered_text.txt"
+          echo "--- rendered.html: any mention of highbury / islington ---"
+          grep -oi '.{60}highbury.{60}' rendered.html | head -10 || echo "no highbury mentions"
+          grep -oi '.{60}islington.{60}' rendered.html | head -10 || echo "no islington mentions"
+
+      - name: Fetch and inspect JS bundles for embedded data
+        run: |
+          curl -sS "https://localtenniscourts.com/assets/main-DLXMVjOc.js" -o main.js -w "main.js bytes: %{size_download}\n"
+          curl -sS "https://localtenniscourts.com/assets/index-Bf7utVcV.js" -o index.js -w "index.js bytes: %{size_download}\n"
+          for f in main.js index.js; do
+            echo "=== $f ==="
+            grep -oE '"/api/[a-zA-Z0-9/_-]*"' "$f" | sort -u | head -20
+            grep -oiE '(fetch\(|axios\.|XMLHttpRequest)' "$f" | sort | uniq -c
+            grep -oiE '.{40}highbury.{40}' "$f" | head -5
+            grep -oiE '.{40}islington.{40}' "$f" | head -5
+            grep -oE '.{40}(monday|tuesday|wednesday|thursday|friday|saturday|sunday).{40}' "$f" -i | head -10
+          done

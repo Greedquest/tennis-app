@@ -2,6 +2,42 @@
 
 A Python application for polling tennis court availability and sending email notifications via Gmail.
 
+## Wednesday-evening court watcher (local script)
+
+`scripts/watch_wednesday_ltc.py` is a standalone script — separate from the
+`tennis_app` package/GitHub Actions poller below, which watches a different
+site. This one watches:
+
+https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor
+
+(an aggregator combining Highbury Fields and Islington Tennis Centre outdoor
+into one table) and fires a **desktop notification** the moment a Wednesday
+slot starting at or after 19:00 flips from booked to free. Alert only — no
+booking automation.
+
+The page is server-rendered, so a plain `requests.get()` returns the full
+availability table already populated; no browser/JS is needed.
+
+Run it once to see current state, then again to see the diff:
+
+```sh
+pip install requests
+python scripts/watch_wednesday_ltc.py --cache cache/ltc_wednesday_state.json
+```
+
+Verify against a saved fixture without hitting the network:
+
+```sh
+python scripts/watch_wednesday_ltc.py \
+    --fixture testing/fixtures/localtenniscourts_sample.html \
+    --cache /tmp/ltc_state.json --no-notify
+```
+
+It's meant to be driven by cron (or Termux/Tasker) every 5 minutes,
+Wednesdays only, roughly midday-22:00 — see the script's docstring for a
+sample crontab line. Claude Code routines run hourly at minimum, so this
+narrower cadence needs a local scheduler, not a hosted routine.
+
 ## Dashboard
 
 A Marimo notebook has been set up to help debug the app.

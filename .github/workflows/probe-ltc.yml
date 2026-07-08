@@ -14,29 +14,65 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch JS bundles and grep for API/data hints
+      - name: Set up Python
+        uses: actions/setup-python@v6.1.0
+        with:
+          python-version: '3.12'
+
+      - name: Install Playwright
         run: |
-          set -x
-          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+          pip install playwright
+          playwright install --with-deps chromium
 
-          for asset in "/assets/index-Bf7utVcV.js" "/assets/main-DLXMVjOc.js"; do
-            echo "=== $asset ==="
-            curl -sS -A "$UA" "https://localtenniscourts.com$asset" -o /tmp/bundle.js -w "HTTP_CODE:%{http_code} SIZE:%{size_download}\n"
-            echo "--- fetch/axios/api calls ---"
-            grep -oE '(fetch|axios\.[a-z]+)\(["'"'"'`][^"'"'"'`]{0,200}' /tmp/bundle.js | sort -u | head -40
-            echo "--- string literals containing api/supabase/graphql/http ---"
-            grep -oE '"[^"]{0,10}(api|supabase|graphql|firestore|convex|functions)[^"]{0,120}"' /tmp/bundle.js | sort -u | head -40
-            echo "--- any https:// literals ---"
-            grep -oE 'https?://[a-zA-Z0-9._/%?=&-]{5,120}' /tmp/bundle.js | sort -u | head -60
-            echo "--- createServerFn / _serverFn hints ---"
-            grep -oE '[a-zA-Z0-9_/-]*[sS]erver[fF]n[a-zA-Z0-9_/-]*' /tmp/bundle.js | sort -u | head -20
-            echo "--- size on disk ---"
-            wc -c /tmp/bundle.js
-          done
+      - name: Load page in a real browser and capture network traffic
+        run: |
+          python3 - <<'PYEOF'
+          import json
+          from playwright.sync_api import sync_playwright
 
-          echo "=== direct known-endpoint guesses with TSR-ish headers ==="
-          for path in "/highbury-fields" "/islington-tennis-centre-outdoor" "/api/venues/highbury-fields" "/_serverFn/getCourts" ; do
-            echo "-- $path --"
-            curl -sS -A "$UA" -H "Accept: text/x-component" "https://localtenniscourts.com$path" -w "\nHTTP_CODE:%{http_code}\n" | head -c 500
-            echo
-          done
+          URL = "https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor"
+          calls = []
+
+          def on_response(response):
+              req = response.request
+              ct = response.headers.get("content-type", "")
+              if req.resource_type in ("xhr", "fetch") or "json" in ct:
+                  entry = {
+                      "url": response.url,
+                      "method": req.method,
+                      "status": response.status,
+                      "content_type": ct,
+                      "post_data": req.post_data,
+                  }
+                  try:
+                      entry["body"] = response.text()[:4000]
+                  except Exception as e:
+                      entry["body"] = f"<error reading body: {e}>"
+                  calls.append(entry)
+
+          with sync_playwright() as p:
+              browser = p.chromium.launch()
+              page = browser.new_page()
+              page.on("response", on_response)
+              page.goto(URL, wait_until="networkidle", timeout=30000)
+              # give any lazy client-side fetches a moment
+              page.wait_for_timeout(4000)
+              browser.close()
+
+          print(f"=== Captured {len(calls)} xhr/fetch/json responses ===")
+          for c in calls:
+              print("-" * 80)
+              print(json.dumps({k: v for k, v in c.items() if k != "body"}, indent=2))
+              print("BODY:", c["body"])
+
+          with open("/tmp/network_calls.json", "w") as f:
+              json.dump(calls, f, indent=2)
+          PYEOF
+
+      - name: Upload captured network calls
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ltc-network-calls
+          path: /tmp/network_calls.json
+          retention-days: 1

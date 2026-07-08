@@ -15,6 +15,35 @@ pip install marimo anywidget polars requests
 marimo run dashboard.py
 ```
 
+## Wednesday-evening court watch (local script)
+
+`scripts/wednesday_watch.py` is a standalone monitor for
+[localtenniscourts.com](https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor)
+(Highbury Fields + Islington Tennis Centre outdoor, combined). It alerts via
+desktop notification the moment a **Wednesday** slot starting at or after
+**19:00** flips from booked to free. Alert only -- no booking automation.
+
+This is deliberately separate from the `tennis_app` cloud poller above:
+localtenniscourts.com has no JSON API (its availability table is
+server-rendered HTML, parsed directly with `requests` + regex -- no browser
+needed), and the alert is a desktop notification, which only makes sense
+running locally. The required cadence (every 5 minutes, Wednesdays
+midday-22:00) is also finer-grained than Claude Code cloud routines support,
+so run it via your own cron / Tasker, not as a hosted job:
+
+```sh
+pip install requests
+# crontab -e
+*/5 12-21 * * 3 /usr/bin/python3 /path/to/scripts/wednesday_watch.py
+```
+
+Dry-run against a saved page (no network, no notification):
+
+```sh
+python scripts/wednesday_watch.py --html-fixture testing/fixtures/ltc_sample.html --no-notify
+python scripts/wednesday_watch.py --html-fixture testing/fixtures/ltc_sample_wed_free.html --no-notify
+```
+
 ## GitHub Copilot Configuration
 
 This repository includes configuration for GitHub Copilot Cloud Agent to access external domains:

@@ -19,3 +19,9 @@ domain_access:
   # bookings.better.org.uk - tennis court booking website (referenced in dashboard.py)
   - domain: bookings.better.org.uk
     description: "Tennis court booking website"
+
+  # localtenniscourts.com - aggregator source for the local Wednesday-evening watch script
+  # (tennis_app/wednesday_watch.py). Needed to run scripts/probe_localtenniscourts.py, since
+  # this domain is unreachable from the sandbox that built the script.
+  - domain: localtenniscourts.com
+    description: "Aggregator site for the local Wednesday-evening court watch script"

@@ -57,10 +57,18 @@ HEADERS = {
     "Referer": "https://bookings.better.org.uk/",
 }
 
-# Sensible default: a known-good control plus the Highbury Fields outdoor slug.
+# Sensible default: a known-good control plus the Highbury Fields slug.
+#
+# "islington-tennis-centre:highbury-tennis" is not yet confirmed by a live probe
+# from this repo (Better Admin returned 422 for every candidate incl. the control
+# on the last attempt - looks like rate-limiting, not a bad slug; retry with a
+# longer --delay). It comes from localtenniscourts.com, a third-party aggregator
+# that server-renders scraped Better Admin data inline in its HTML (view source,
+# no separate API call needed) - its own "book now" links for Highbury Fields
+# point at https://bookings.better.org.uk/location/islington-tennis-centre/highbury-tennis/...
 DEFAULT_CANDIDATES = [
     "islington-tennis-centre:tennis-court-outdoor",  # known-good control
-    "islington-parks:tennis-court-outdoor",
+    "islington-tennis-centre:highbury-tennis",
 ]
 
 

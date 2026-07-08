@@ -22,7 +22,12 @@ below unless and until the Wednesday-watch implementation lands.
 ## Venues watched
 
 - `islington-tennis-centre` / `tennis-court-indoor` + `tennis-court-outdoor`.
-- Highbury Fields (`islington-parks` / `tennis-court-outdoor`) is currently a probed candidate only; it's not in `tennis_app/config.py` yet.
+- Highbury Fields is a probed candidate only, not yet in `tennis_app/config.py`. Best-guess
+  slug is `islington-tennis-centre` / `highbury-tennis` (from localtenniscourts.com's
+  booking links back to Better Admin — see `scripts/probe_venue.py`), not the earlier
+  `islington-parks` / `tennis-court-outdoor` guess. Unconfirmed by a live probe from this
+  repo: Better Admin returned 422 on every candidate including the known-good control on
+  the last attempt, which reads as rate-limiting rather than a bad slug.
 
 ## Gotchas when working on this routine
 

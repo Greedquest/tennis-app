@@ -2,6 +2,14 @@
 
 A Python application for polling tennis court availability and sending email notifications via Gmail.
 
+## Wednesday-evening court watch (local script)
+
+`scripts/wednesday_evening_watch.py` is a standalone local script that alerts the moment a
+tennis slot starting at or after 19:00 on a Wednesday flips from booked to free, via a desktop
+notification. It's not a Claude Code routine (routines are hourly-minimum, too coarse for a
+5-minute check) — schedule it yourself with cron or Tasker/Termux:API. See the module docstring
+for a crontab example and how to test it against a fixture without hitting the live API.
+
 ## Dashboard
 
 A Marimo notebook has been set up to help debug the app.

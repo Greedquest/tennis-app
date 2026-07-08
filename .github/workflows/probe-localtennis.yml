@@ -1,0 +1,24 @@
+name: Probe localtenniscourts.com (throwaway)
+
+on:
+  push:
+    branches:
+      - claude/great-wright-793fa9
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup Python
+        uses: actions/setup-python@v6.1.0
+        with:
+          python-version: '3.12'
+      - name: Install requests
+        run: pip install requests
+      - name: Probe
+        run: python scripts/probe_localtenniscourts.py

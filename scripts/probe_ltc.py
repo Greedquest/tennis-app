@@ -1,22 +1,16 @@
 #!/usr/bin/env python3
-"""Throwaway probe: inspect how localtenniscourts.com loads its availability data.
+"""Throwaway probe v3: why doesn't the availability table have any rows?
 
-Loads the query page in a real browser (Playwright/Chromium) and records every
-network response (any host), plus a dump of the rendered availability table.
-Meant to be run once from a GitHub Actions runner (the sandbox proxy blocks
-this domain) to answer: does the site expose a JSON endpoint, or is scraping
-the rendered HTML the only option?
-
-v2: v1 only logged responses whose URL contained "localtenniscourts.com",
-which would have hidden a data API hosted on a different domain (e.g. a
-Supabase/backend host). This version logs every response host+status, and
-fetches bodies for anything that looks like data (JSON content-type, or a
-non-static-asset extension).
+v1/v2 showed: the rendered <table> has day-of-week headers (Wed 08, Thu 09,
+...) but no <tbody> rows, and no XHR/fetch response was ever observed to any
+host. This version waits longer, logs every *request* (not just responses),
+console messages, and page errors, and dumps the full un-truncated initial
+HTML body to a log-friendly (base64-chunked) form so we can tell whether the
+app ever attempts a data fetch at all.
 
 Usage: python scripts/probe_ltc.py
 """
 
-import json
 import sys
 from urllib.parse import urlparse
 
@@ -45,70 +39,71 @@ def is_static_asset(url: str) -> bool:
 
 
 def main() -> int:
-    all_responses: list[dict] = []
-    data_responses: list[dict] = []
+    requests_log: list[str] = []
+    console_log: list[str] = []
+    errors_log: list[str] = []
 
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page()
 
-        def on_response(response):
-            ctype = ""
-            try:
-                ctype = response.headers.get("content-type", "")
-            except Exception:
-                pass
-
-            all_responses.append(
-                {"url": response.url, "status": response.status, "content_type": ctype}
-            )
-
-            if is_static_asset(response.url) or "google-analytics" in response.url:
-                return
-
-            body_snippet = None
-            try:
-                if "json" in ctype.lower() or "text" in ctype.lower():
-                    body_snippet = response.text()[:6000]
-            except Exception as e:  # noqa: BLE001 - diagnostic only
-                body_snippet = f"<could not read body: {e}>"
-
-            data_responses.append(
-                {
-                    "url": response.url,
-                    "status": response.status,
-                    "content_type": ctype,
-                    "body_snippet": body_snippet,
-                }
-            )
-
-        page.on("response", on_response)
+        page.on(
+            "request",
+            lambda req: requests_log.append(f"{req.method} {req.url}")
+            if not is_static_asset(req.url)
+            else None,
+        )
+        page.on("console", lambda msg: console_log.append(f"[{msg.type}] {msg.text}"))
+        page.on("pageerror", lambda exc: errors_log.append(str(exc)))
 
         print(f"Navigating to {URL}", file=sys.stderr)
-        page.goto(URL, wait_until="networkidle", timeout=45000)
-        page.wait_for_timeout(3000)  # let any late XHRs settle
+        page.goto(URL, wait_until="load", timeout=45000)
+
+        # Poll for table rows for up to 15s instead of a single fixed wait
+        found_rows = False
+        for _ in range(15):
+            page.wait_for_timeout(1000)
+            try:
+                n_rows = page.eval_on_selector_all("table tbody tr", "els => els.length")
+            except Exception:
+                n_rows = 0
+            if n_rows:
+                found_rows = True
+                print(f"Rows appeared after ~{_+1}s: {n_rows} rows", file=sys.stderr)
+                break
 
         html = page.content()
 
-        # Try to grab the rendered table's outerHTML directly, which is more
-        # useful than grepping the full page HTML.
         table_html = None
         try:
             table_html = page.eval_on_selector("table", "el => el.outerHTML")
-        except Exception as e:  # noqa: BLE001 - diagnostic only
+        except Exception as e:  # noqa: BLE001
             table_html = f"<no table found: {e}>"
+
+        # Grab any text mentioning "no results", "error", "loading" etc as a hint
+        body_text = page.inner_text("body")
 
         browser.close()
 
-    print("\n--- ALL RESPONSE HOSTS (url, status, content-type) ---")
-    for r in all_responses:
-        print(f"{r['status']:4} {r['content_type']:40} {r['url']}")
+    print(f"\n--- FOUND ROWS: {found_rows} ---")
 
-    print("\n--- NON-STATIC RESPONSE BODIES (candidate data/API calls) ---")
-    print(json.dumps(data_responses, indent=2, default=str))
+    print("\n--- NON-STATIC REQUESTS (method + url) ---")
+    for r in requests_log:
+        print(r)
 
-    print("\n--- RENDERED TABLE outerHTML ---")
+    print("\n--- CONSOLE MESSAGES ---")
+    for c in console_log:
+        print(c)
+
+    print("\n--- PAGE ERRORS ---")
+    for e in errors_log:
+        print(e)
+
+    print("\n--- FULL TABLE outerHTML ---")
     print(table_html)
+
+    print("\n--- BODY INNER TEXT (first 3000 chars) ---")
+    print(body_text[:3000])
 
     print("\n--- RENDERED HTML LENGTH ---")
     print(len(html))

@@ -14,6 +14,17 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6.1.0
+        with:
+          python-version: '3.12'
+
+      - name: Install requests
+        run: pip install requests
+
       - name: Fetch page HTML three times (check if load error is transient)
         run: |
           UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -60,5 +71,28 @@ jobs:
           grep -oE '(https?://[a-zA-Z0-9.-]+)' main.js index.js | sort -u || true
           grep -ioE '/_serverFn/[a-zA-Z0-9_/-]*' main.js index.js | sort -u || true
           grep -ioE 'supabase|convex|trpc|better-admin|bookings\.better|graphql' main.js index.js | sort -u || true
+          echo "--- context around every _serverFn occurrence in main.js ---"
+          grep -oE '.{150}_serverFn.{150}' main.js | head -20 || true
           echo "--- sample around 'tableData' fetch logic in index.js ---"
           grep -oE '.{80}fetchTableData.{80}|.{80}getTableData.{80}|.{80}fetch\(.{120}' index.js | head -20 || true
+
+      - name: Try single-venue query (isolate whether multi-venue causes the error)
+        run: |
+          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+          for q in "highbury-fields" "islington-tennis-centre-outdoor"; do
+            echo "=== q=$q ==="
+            curl -sSL "https://localtenniscourts.com/?q=$q" -A "$UA" -o "single.html" -w "HTTP %{http_code}\n"
+            grep -oE 'tableData:[a-zA-Z0-9_.\[\]]*' single.html | head -1 || true
+            grep -oE 'error:\$R\[[0-9]+\]=\{message:"[^"]*"\}' single.html || echo "no error found"
+            sleep 2
+          done
+
+      - name: Probe Better Admin API for Highbury Fields court slug
+        run: |
+          python3 scripts/probe_venue.py \
+            islington-tennis-centre:tennis-court-outdoor \
+            islington-parks:tennis-court-outdoor \
+            islington-parks:highbury-fields \
+            islington-parks:highbury-fields-tennis-courts \
+            islington-parks:highbury-fields-activities \
+            --days 3 --delay 1.5

@@ -90,10 +90,54 @@ def find_script_srcs(html: str) -> None:
 
 
 def dump_raw_html(html: str) -> None:
-    section("Raw HTML (first 5000 chars)")
-    print(html[:5000])
-    section("Raw HTML (last 3000 chars)")
-    print(html[-3000:])
+    # This app streams a giant single-line seroval ($R[...]=...) payload,
+    # not a <script id="..."> JSON blob. Chunk it so the GH Actions log
+    # renderer doesn't choke on one 90KB line, and print all of it.
+    section(f"Raw HTML, full body ({len(html)} chars), chunked")
+    chunk = 2000
+    for i in range(0, len(html), chunk):
+        print(html[i : i + chunk])
+
+
+def grep_context(html: str, needles: list[str], radius: int = 400) -> None:
+    section("Keyword search in HTML")
+    for needle in needles:
+        idxs = [m.start() for m in re.finditer(re.escape(needle), html)]
+        print(f"\n--- {needle!r}: {len(idxs)} occurrence(s) ---")
+        for idx in idxs[:5]:
+            lo, hi = max(0, idx - radius), min(len(html), idx + radius)
+            print(f"[@{idx}] …{html[lo:hi]}…")
+
+
+def fetch_and_grep_bundle(html: str) -> None:
+    section("JS bundle inspection")
+    srcs = re.findall(r'href="(/assets/[^"]+\.js)"', html) + re.findall(
+        r"import\('(/assets/[^']+\.js)'\)", html
+    )
+    for src in sorted(set(srcs)):
+        url = BASE + src
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=20)
+            print(f"\n--- {url} ({len(r.text)} chars) ---")
+            for needle in (
+                "/api/",
+                "fetch(",
+                "serverFn",
+                "trpc",
+                "better-admin",
+                "clubspark",
+                "courtside",
+                "playfinder",
+                "bookteq",
+                "createServerFn",
+            ):
+                idxs = [m.start() for m in re.finditer(re.escape(needle), r.text)]
+                if idxs:
+                    print(f"  found {needle!r} x{len(idxs)}, first context:")
+                    idx = idxs[0]
+                    print("   ", r.text[max(0, idx - 150) : idx + 150])
+        except Exception as e:
+            print(f" ERR  {url}  {e}")
 
 
 def try_guessed_endpoints() -> None:
@@ -114,6 +158,22 @@ def main() -> int:
     html = fetch_page()
     find_embedded_json(html)
     find_script_srcs(html)
+    grep_context(
+        html,
+        [
+            "spaces",
+            "starts_at",
+            "start_time",
+            "available",
+            "timeslot",
+            "slots",
+            "id:1,",
+            "id:5,",
+            "highbury",
+            "islington-tennis-centre",
+        ],
+    )
+    fetch_and_grep_bundle(html)
     dump_raw_html(html)
     try_guessed_endpoints()
     return 0

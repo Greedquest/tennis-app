@@ -47,3 +47,20 @@ jobs:
         run: |
           echo "--- grep for any court/venue/day content in raw HTML (pre-hydration) ---"
           grep -oiE '.{60}(highbury|islington|wednesday).{60}' page.html | head -30 || echo "none found in raw HTML (expected if client-rendered)"
+
+      - name: Inspect embedded data payload structure and freshness
+        run: |
+          echo "--- all distinct scraped_at timestamps ---"
+          grep -oE '"scraped_at":"[^"]*"' page.html | sort -u
+          echo "--- slot/time field names near booking_url entries (context around 'slot/') ---"
+          grep -oE '.{0}by-time/slot/[0-9:]*-[0-9:]*' page.html | sort -u | head -60
+          echo "--- keys used in the payload objects (rough) ---"
+          grep -oE '[a-z_]+:(\{|\[|"|[0-9])' page.html | sed -E 's/[:{["0-9].*//' | sort -u | head -60
+          echo "--- one full raw slice around first venue_id occurrence (2000 chars) ---"
+          python3 -c "
+          data = open('page.html').read()
+          idx = data.find('venue_id')
+          print(data[max(0, idx-200):idx+3000])
+          "
+          echo "--- current time for staleness comparison ---"
+          date -u

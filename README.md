@@ -15,6 +15,39 @@ pip install marimo anywidget polars requests
 marimo run dashboard.py
 ```
 
+## Local Wednesday-evening court watch
+
+`scripts/local_court_watch.py` is a separate, standalone monitor — not part
+of the `tennis_app` GitHub Actions poller above. It watches
+[localtenniscourts.com](https://localtenniscourts.com) (an aggregator that
+re-serves Highbury Fields and Islington Tennis Centre - Outdoor availability)
+and fires a desktop notification the moment a slot starting at or after
+19:00 on a Wednesday flips from booked to free. Booking stays manual — this
+only alerts.
+
+It's meant to run from a *local* scheduler (cron, or Termux + Tasker on
+Android), every 5 minutes, Wednesdays from midday to 22:00 — Claude Code
+routines are hourly-minimum, too coarse for this. The script re-checks the
+day/time itself, so a coarser cron trigger is safe too:
+
+```sh
+*/5 12-21 * * 3 cd /path/to/tennis-app && python3 scripts/local_court_watch.py
+```
+
+Verify locally without hitting the network:
+
+```sh
+python scripts/local_court_watch.py \
+  --fixture testing/fixtures/localtenniscourts_sample.html \
+  --cache /tmp/local_court_watch_state.json --dry-run --force
+```
+
+The site embeds its data in the page as a serialized JS reference graph
+rather than a plain JSON API; see the parsing notes at the top of the
+script, and `scripts/probe_localtenniscourts.py` for how to re-verify the
+page structure if it ever changes (run it from a GitHub Actions job — the
+domain isn't reachable from every sandbox).
+
 ## GitHub Copilot Configuration
 
 This repository includes configuration for GitHub Copilot Cloud Agent to access external domains:

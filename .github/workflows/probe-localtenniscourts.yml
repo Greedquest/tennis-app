@@ -12,55 +12,20 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch page HTML
-        run: |
-          curl -sS -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
-            "https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor" \
-            -o page.html -w "HTTP status: %{http_code}\n"
-          echo "--- bytes: $(wc -c < page.html) ---"
+      - name: Checkout
+        uses: actions/checkout@v6
 
-      - name: Fetch and inspect JS bundles for embedded data / API calls
-        run: |
-          curl -sS "https://localtenniscourts.com/assets/main-DLXMVjOc.js" -o main.js -w "main.js bytes: %{size_download}\n"
-          curl -sS "https://localtenniscourts.com/assets/index-Bf7utVcV.js" -o index.js -w "index.js bytes: %{size_download}\n"
-          for f in main.js index.js; do
-            echo "=== $f ==="
-            echo "-- literal /api/ paths --"
-            grep -oE '"/api/[a-zA-Z0-9/_-]*"' "$f" | sort -u | head -20
-            echo "-- absolute https:// api-looking hosts --"
-            grep -oE 'https?://[a-zA-Z0-9.-]*\.[a-zA-Z]{2,}[a-zA-Z0-9/_-]*' "$f" | sort -u | grep -vi 'localtenniscourts.com\|google\|w3.org\|schema.org' | head -30
-            echo "-- fetch/axios/XHR call count --"
-            grep -oiE '(fetch\(|axios\.|XMLHttpRequest)' "$f" | sort | uniq -c
-            echo "-- highbury mentions --"
-            grep -oiE '.{40}highbury.{40}' "$f" | head -5
-            echo "-- islington mentions --"
-            grep -oiE '.{40}islington.{40}' "$f" | head -5
-            echo "-- better-admin / bookings.better mentions --"
-            grep -oiE '.{40}(better-admin|bookings\.better)[a-z.]*.{40}' "$f" | head -5
-            echo "-- day-name mentions --"
-            grep -ioE '.{40}(monday|tuesday|wednesday|thursday|friday|saturday|sunday).{40}' "$f" | head -10
-            echo "-- 'wednesday'/'19:' literal slot-shaped substrings --"
-            grep -oE '.{20}"spaces"[^}]{0,80}' "$f" | head -10
-          done
+      - name: Setup Python
+        uses: actions/setup-python@v6.1.0
+        with:
+          python-version: '3.12'
 
-      - name: Dump raw HTML body region (post markup, pre closing)
-        run: |
-          echo "--- grep for any court/venue/day content in raw HTML (pre-hydration) ---"
-          grep -oiE '.{60}(highbury|islington|wednesday).{60}' page.html | head -30 || echo "none found in raw HTML (expected if client-rendered)"
+      - name: Install deps
+        run: pip install requests
 
-      - name: Inspect embedded data payload structure and freshness
+      - name: Confirm Highbury Fields slug directly against Better Admin
         run: |
-          echo "--- all distinct scraped_at timestamps ---"
-          grep -oE '"scraped_at":"[^"]*"' page.html | sort -u
-          echo "--- slot/time field names near booking_url entries (context around 'slot/') ---"
-          grep -oE '.{0}by-time/slot/[0-9:]*-[0-9:]*' page.html | sort -u | head -60
-          echo "--- keys used in the payload objects (rough) ---"
-          grep -oE '[a-z_]+:(\{|\[|"|[0-9])' page.html | sed -E 's/[:{["0-9].*//' | sort -u | head -60
-          echo "--- one full raw slice around first venue_id occurrence (2000 chars) ---"
-          python3 -c "
-          data = open('page.html').read()
-          idx = data.find('venue_id')
-          print(data[max(0, idx-200):idx+3000])
-          "
-          echo "--- current time for staleness comparison ---"
-          date -u
+          python scripts/probe_venue.py \
+            islington-tennis-centre:tennis-court-outdoor \
+            islington-tennis-centre:highbury-tennis \
+            --days 3 --delay 1.5

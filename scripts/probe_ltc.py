@@ -80,6 +80,28 @@ def static_probe(url: str) -> None:
     n_rows = len(re.findall(r"<tr", html, flags=re.I))
     print(f"\n<table> tags: {n_tables}, <tr> tags: {n_rows}")
 
+    # Dump the full <table>...</table> blocks: this is where slot data would render.
+    tables = re.findall(r"<table.*?</table>", html, flags=re.I | re.S)
+    print(f"\n--- {len(tables)} <table> block(s), full content ---")
+    for i, t in enumerate(tables):
+        print(f"\n[table {i}] ({len(t)} chars)")
+        print(t)
+
+    # Look for day-of-week / time tokens anywhere in the payload (they'd show up
+    # in the embedded loader data even if not yet rendered into a <table>).
+    day_hits = re.findall(r"(Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*", html)
+    print(f"\nDay-of-week token counts: { {d: day_hits.count(d) for d in set(day_hits)} }")
+    time_hits = re.findall(r"\b([01]?\d:[0-5]\d\s?(?:am|pm|AM|PM)?)\b", html)
+    print(f"Time-like tokens found: {len(time_hits)}; sample: {time_hits[:20]}")
+
+    # Search the embedded loader/RSC payload for keys that look like slot/availability data.
+    for kw in ("slot", "available", "booked", "spaces", "start_time", "startTime", "times"):
+        idxs = [m.start() for m in re.finditer(kw, html, flags=re.I)]
+        if idxs:
+            print(f"\nKeyword {kw!r}: {len(idxs)} occurrence(s), first context:")
+            i = idxs[0]
+            print(html[max(0, i - 200) : i + 300])
+
     # Dump a chunk of the raw HTML for manual inspection in the job log.
     print("\n--- first 3000 chars of HTML ---")
     print(html[:3000])
@@ -118,10 +140,16 @@ def dynamic_probe(url: str) -> None:
 
         page.on("response", on_response)
         page.goto(url, wait_until="networkidle", timeout=30000)
-        page.wait_for_timeout(2000)
+        page.wait_for_timeout(5000)
 
         # Grab whatever slot/day/table structure ends up in the DOM too.
-        body_text = page.inner_text("body")[:3000]
+        body_text = page.inner_text("body")[:6000]
+        try:
+            table_html = page.eval_on_selector_all(
+                "table", "els => els.map(e => e.outerHTML).join('\\n\\n---TABLE---\\n\\n')"
+            )
+        except Exception as e:  # noqa: BLE001
+            table_html = f"<error: {e}>"
         browser.close()
 
     print(f"\nCaptured {len(requests_seen)} network responses.")
@@ -139,8 +167,10 @@ def dynamic_probe(url: str) -> None:
     for r in non_asset:
         print(f"  {r['status']:4} {r['content_type']:30} {r['url']}")
 
-    print("\n--- rendered <body> innerText (first 3000 chars) ---")
+    print("\n--- rendered <body> innerText (first 6000 chars) ---")
     print(body_text)
+    print("\n--- rendered <table> outerHTML ---")
+    print(table_html)
 
 
 def main(argv: list[str] | None = None) -> int:

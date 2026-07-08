@@ -21,7 +21,12 @@ jobs:
           python-version: '3.12'
 
       - name: Install deps
-        run: pip install requests
+        run: |
+          pip install requests playwright
+          playwright install --with-deps chromium
 
-      - name: Probe site
+      - name: Probe site (static)
         run: python scripts/probe_localtenniscourts.py
+
+      - name: Probe site (headless browser network capture)
+        run: python scripts/probe_playwright.py

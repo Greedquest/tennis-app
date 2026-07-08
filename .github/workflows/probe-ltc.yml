@@ -1,0 +1,29 @@
+name: Probe localtenniscourts.com
+
+on:
+  push:
+    branches:
+      - claude/great-wright-fn4b5c
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6.1.0
+        with:
+          python-version: '3.12'
+
+      - name: Install deps
+        run: |
+          pip install requests playwright
+          playwright install --with-deps chromium
+
+      - name: Probe
+        run: python scripts/probe_ltc.py

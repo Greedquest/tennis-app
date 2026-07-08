@@ -14,29 +14,11 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch full page
+      - name: Fetch full page and dump verbatim
         run: |
           UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
           curl -sS -o page.html -A "$UA" "https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor"
           echo "total bytes: $(wc -c < page.html)"
-
-      - name: Follow the /api/availability redirect
-        run: |
-          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-          echo "=== redirect chain ==="
-          curl -sS -D - -o /dev/null -A "$UA" "https://localtenniscourts.com/api/availability?q=highbury-fields,islington-tennis-centre-outdoor" || true
-          echo "=== following redirects, body ==="
-          curl -sSL -A "$UA" -H "Accept: application/json" "https://localtenniscourts.com/api/availability?q=highbury-fields,islington-tennis-centre-outdoor" | head -c 5000 || true
-
-      - name: Locate hydration/data script blobs
-        run: |
-          echo "=== script tag ids/types ==="
-          grep -oE '<script[^>]*(id="[^"]*"|type="[^"]*")[^>]*>' page.html | sort -u || true
-          echo
-          echo "=== lines mentioning loaderData / dehydrat / __TSR / hydrat / spaces / available ==="
-          grep -oE '.{80}(loaderData|dehydrat|__TSR|hydrat|"spaces"|"available"|"slots"|"availability").{80}' page.html | head -c 20000 || true
-
-      - name: Dump tail of page (data script usually near the end)
-        run: |
-          echo "=== last 20000 chars ==="
-          tail -c 20000 page.html
+          echo "=== FULL PAGE START ==="
+          cat page.html
+          echo "=== FULL PAGE END ==="

@@ -75,6 +75,14 @@ def main() -> int:
                     entry["body_error"] = str(e)
             calls.append(entry)
 
+        console_msgs: list[str] = []
+        page_errors: list[str] = []
+        websockets: list[str] = []
+
+        page.on("console", lambda msg: console_msgs.append(f"[{msg.type}] {msg.text}"))
+        page.on("pageerror", lambda exc: page_errors.append(str(exc)))
+        page.on("websocket", lambda ws: websockets.append(ws.url))
+
         page.on("request", on_request)
         page.on("requestfailed", on_request_failed)
         page.on("response", on_response)
@@ -87,6 +95,18 @@ def main() -> int:
         body_text = page.inner_text("body")
 
         browser.close()
+
+    print("\n--- CONSOLE MESSAGES ---")
+    for m in console_msgs:
+        print(m)
+
+    print("\n--- PAGE ERRORS (uncaught exceptions) ---")
+    for e in page_errors:
+        print(e)
+
+    print("\n--- WEBSOCKETS OPENED ---")
+    for w in websockets:
+        print(w)
 
     print("\n--- ALL NON-STATIC REQUESTS ISSUED ---")
     print(json.dumps(requests_seen, indent=2, default=str))

@@ -24,6 +24,17 @@ This repository includes configuration for GitHub Copilot Cloud Agent to access 
   - Fetch tennis court availability data
   - Resolve "failed to fetch wire" errors when accessing molab links
 
+## Local Wednesday-evening court watcher
+
+`scripts/watch_wednesday_courts.py` is a standalone local script (cron /
+Termux, not a cloud routine — those run at most hourly) that polls
+[localtenniscourts.com](https://localtenniscourts.com) every few minutes on
+Wednesdays and fires a desktop notification the moment a slot at or after
+19:00 flips from fully booked to free. It's independent of the
+`tennis_app` GitHub Actions poller above (different source, different
+schedule, alert-only). See the module docstring in the script for the data
+source, scheduling recipes (cron / Termux), and caveats.
+
 ## Pre-commit Hooks
 
 This project uses [pre-commit](https://pre-commit.com/) and [pre-commit.ci](https://pre-commit.ci/) for automatic code quality checks and fixes.

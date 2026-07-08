@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/probe-ltc.yml'
       - 'scripts/probe_ltc.py'
+      - 'scripts/probe_venue.py'
 
 permissions:
   contents: read
@@ -23,5 +24,5 @@ jobs:
           python-version: '3.12'
       - name: Install deps
         run: pip install requests
-      - name: Probe localtenniscourts.com
-        run: python scripts/probe_ltc.py
+      - name: Probe Better Admin for Highbury Fields slug
+        run: python scripts/probe_venue.py islington-tennis-centre:tennis-court-outdoor islington-parks:tennis-court-outdoor --days 10 --delay 1.5

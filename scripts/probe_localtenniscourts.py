@@ -69,7 +69,7 @@ def main() -> int:
     for s in all_js:
         if s.startswith("http") and "localtenniscourts.com" not in s:
             continue
-        url = s if s.startswith("http") else (BASE.rstrip("/") + s.lstrip("/"))
+        url = s if s.startswith("http") else (BASE.rstrip("/") + "/" + s.lstrip("/"))
         try:
             jr = get(url)
         except Exception as e:

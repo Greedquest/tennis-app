@@ -20,10 +20,8 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install Playwright
-        run: |
-          pip install playwright
-          playwright install --with-deps chromium
+      - name: Install deps
+        run: pip install requests
 
       - name: Probe localtenniscourts.com
         run: python scripts/probe_ltc.py

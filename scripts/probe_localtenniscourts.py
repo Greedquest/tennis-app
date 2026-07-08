@@ -31,7 +31,9 @@ def main() -> int:
 
         def on_response(response):
             req = response.request
-            if req.resource_type not in ("xhr", "fetch", "document"):
+            if req.resource_type in ("image", "stylesheet", "font", "media"):
+                return
+            if "google-analytics" in response.url or "cdn-cgi/rum" in response.url:
                 return
             content_type = response.headers.get("content-type", "")
             entry = {
@@ -41,7 +43,7 @@ def main() -> int:
                 "content_type": content_type,
                 "resource_type": req.resource_type,
             }
-            if "json" in content_type:
+            if "json" in content_type or req.resource_type in ("xhr", "fetch"):
                 try:
                     body = response.text()
                     entry["body_snippet"] = body[:2000]
@@ -56,14 +58,39 @@ def main() -> int:
         page.wait_for_timeout(3000)  # settle any late XHRs
 
         html = page.content()
-        with open("localtenniscourts_rendered.html", "w", encoding="utf-8") as f:
-            f.write(html)
+        body_text = page.inner_text("body")
 
         browser.close()
 
     print("\n--- NETWORK CALLS (JSON) ---")
     print(json.dumps(calls, indent=2, default=str))
-    print(f"\nRendered HTML saved to localtenniscourts_rendered.html ({len(html)} bytes)")
+
+    print(f"\n--- RENDERED HTML LENGTH: {len(html)} ---")
+
+    print("\n--- SCRIPT TAGS (src or inline snippets) ---")
+    import re
+
+    for m in re.finditer(r"<script[^>]*>(.*?)</script>", html, re.S):
+        tag = m.group(0)
+        if "src=" in tag[:200]:
+            src_match = re.search(r'src="([^"]+)"', tag)
+            if src_match:
+                print("SRC:", src_match.group(1))
+        else:
+            inline = m.group(1).strip()
+            if inline and any(
+                k in inline for k in ("__NEXT_DATA__", "__INITIAL_STATE__", "wednesday", "slot", "court", "api")
+            ):
+                print("INLINE SNIPPET:", inline[:1500])
+
+    print("\n--- BODY INNER TEXT (first 4000 chars) ---")
+    print(body_text[:4000])
+
+    print("\n--- HTML SNIPPETS MENTIONING 'wednesday' or 'court' (case-insensitive) ---")
+    for m in re.finditer(r".{200}(?:wednesday|court|available|book).{200}", html, re.I | re.S):
+        print(m.group(0))
+        print("---")
+
     return 0
 
 

@@ -102,6 +102,21 @@ def static_probe(url: str) -> None:
             i = idxs[0]
             print(html[max(0, i - 200) : i + 300])
 
+    # All distinct venue_id/name pairs seen in the loader payload.
+    venue_id_names = sorted(set(re.findall(r'venue_id:(\d+),name:"([^"]*)"', html)))
+    print(f"\nDistinct venue_id/name pairs: {venue_id_names}")
+
+    # Dump the full loader data blob: from "rows:$R" to "selectedVenueIds" (exclusive),
+    # which should contain every hour/day/venue spaces entry.
+    start_m = re.search(r"rows:\$R", html)
+    end_m = re.search(r"selectedVenueIds", html)
+    if start_m and end_m and end_m.start() > start_m.start():
+        blob = html[start_m.start() : end_m.start()]
+        print(f"\n--- full rows/loader blob ({len(blob)} chars) ---")
+        print(blob)
+    else:
+        print("\ncould not locate rows/loader blob bounds")
+
     # Dump a chunk of the raw HTML for manual inspection in the job log.
     print("\n--- first 3000 chars of HTML ---")
     print(html[:3000])
@@ -179,7 +194,6 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
 
     static_probe(args.url)
-    dynamic_probe(args.url)
     return 0
 
 

@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
-"""One-off probe: does localtenniscourts.com expose a JSON API?
+"""One-off probe: how does localtenniscourts.com structure its court table?
 
-Fetches the page HTML plus any same-origin script bundles it references and
-greps them for fetch/XHR/API endpoint patterns. Run from an environment with
-real internet egress (the dev sandbox's proxy 403s this domain) — see
-CLAUDE.md gotchas. Throwaway diagnostic script; delete after use.
+Round 2: no client-side JSON API was found (round 1), so the data must be
+server-rendered directly into the HTML. This dumps the table-ish markup so we
+can write an HTML parser against real structure instead of guessing.
+Run from an environment with real internet egress (the dev sandbox's proxy
+403s this domain) — see CLAUDE.md gotchas. Throwaway diagnostic; delete after use.
 """
 
 import re
 import sys
-from urllib.parse import urljoin
 
 import requests
 
-BASE = "https://localtenniscourts.com/"
 PAGE = "https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor"
 
 HEADERS = {
@@ -26,55 +25,24 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-ENDPOINT_RE = re.compile(
-    r"""["'](?:https?://[^"']+)?/(?:api|wp-json|graphql|data|_next/data)[^"'\s]*["']|"""
-    r"""fetch\(\s*["'][^"')]+["']|"""
-    r"""\.json["']""",
-    re.IGNORECASE,
-)
-SCRIPT_SRC_RE = re.compile(r'<script[^>]+src=["\']([^"\']+)["\']', re.IGNORECASE)
 
-
-def probe_url(url: str, label: str) -> str:
-    try:
-        r = requests.get(url, headers=HEADERS, timeout=20)
-        print(f"\n=== {label}: {url} ===")
-        print(f"status={r.status_code} bytes={len(r.content)}")
-        return r.text if r.ok else ""
-    except Exception as e:  # noqa: BLE001
-        print(f"\n=== {label}: {url} ===\nERROR: {e}")
-        return ""
+def strip_scripts(html: str) -> str:
+    return re.sub(r"<script\b[^>]*>.*?</script>", "", html, flags=re.DOTALL | re.IGNORECASE)
 
 
 def main() -> int:
-    html = probe_url(PAGE, "page")
-    if not html:
-        print("Could not fetch page; aborting.")
+    r = requests.get(PAGE, headers=HEADERS, timeout=20)
+    print(f"status={r.status_code} bytes={len(r.content)}")
+    if not r.ok:
         return 1
 
-    print("\n--- inline endpoint-like matches on page ---")
-    matches = sorted(set(ENDPOINT_RE.findall(html)))
-    for m in matches[:50]:
-        print(m)
-    if not matches:
-        print("(none found)")
+    html = r.text
+    body_start = html.lower().find("<body")
+    body = html[body_start:] if body_start != -1 else html
+    body = strip_scripts(body)
 
-    scripts = sorted(set(SCRIPT_SRC_RE.findall(html)))
-    print(f"\n--- {len(scripts)} script src(s) found ---")
-    for s in scripts:
-        print(s)
-
-    for s in scripts:
-        script_url = urljoin(BASE, s)
-        js = probe_url(script_url, "script")
-        if not js:
-            continue
-        js_matches = sorted(set(ENDPOINT_RE.findall(js)))
-        print(f"--- endpoint-like matches in {script_url} ---")
-        for m in js_matches[:50]:
-            print(m)
-        if not js_matches:
-            print("(none found)")
+    print("\n=== FULL BODY (scripts stripped) ===\n")
+    print(body)
 
     return 0
 

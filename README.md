@@ -2,6 +2,38 @@
 
 A Python application for polling tennis court availability and sending email notifications via Gmail.
 
+## Wednesday-evening court watch (local script, not the cloud poller)
+
+`scripts/wednesday_watch.py` alerts the moment a tennis slot starting at or
+after 19:00 on Wednesday flips from booked to free, for Highbury Fields and
+Islington Tennis Centre (outdoor). It's alert-only — nothing is booked
+automatically.
+
+This deliberately does **not** run as a cloud routine or GitHub Actions
+schedule: those are hourly-minimum, too coarse for a 5-minute check. Run it
+locally instead, either via cron:
+
+```sh
+# crontab -e — Wednesdays only, midday to 22:00, every 5 minutes
+*/5 12-21 * * 3 cd /path/to/tennis-app && python3 scripts/wednesday_watch.py >> logs/wednesday_watch.log 2>&1
+0   22    * * 3 cd /path/to/tennis-app && python3 scripts/wednesday_watch.py >> logs/wednesday_watch.log 2>&1
+```
+
+or as an always-on loop that sleeps between checks and only polls during the
+Wednesday window:
+
+```sh
+python3 scripts/wednesday_watch.py --loop
+```
+
+On Termux (Android), `pkg install cronie termux-api` gives you the same
+crontab lines plus `termux-notification` alerts; the script also falls back
+to `notify-send` (Linux desktop) or `osascript` (macOS) automatically.
+
+Verify without waiting for a real Wednesday by faking the state file: run
+twice with `--state /tmp/test-state.json`, editing the spaces count between
+runs to simulate a booked→free flip.
+
 ## Dashboard
 
 A Marimo notebook has been set up to help debug the app.

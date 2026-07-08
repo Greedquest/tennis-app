@@ -25,7 +25,25 @@ fires when a slot's `Spaces` goes from `0` to `>0` versus the cached baseline.
 ## Venues watched
 
 - `islington-tennis-centre` / `tennis-court-indoor` + `tennis-court-outdoor`.
-- Highbury Fields (`islington-parks` / `tennis-court-outdoor`) is currently a probed candidate only; it's not in `tennis_app/config.py` yet.
+- Highbury Fields is **not** in `tennis_app/config.py` yet — still unresolved after two probe rounds:
+  - Better Admin slug `islington-parks`/`tennis-court-outdoor` and the untried
+    `islington-parks`/`highbury-fields-activities`: both structurally valid
+    (HTTP 200) but return **0 records** on every probed date. `highbury-fields`/
+    `tennis-court-outdoor` and `islington-parks`/`highbury-fields` both 404. The
+    known-good control (`islington-tennis-centre`/`tennis-court-outdoor`) got
+    rate-limited (422) on the same probe run, so the 404s aren't fully trustworthy
+    yet — re-run with the control isolated/spaced out before treating them as final.
+  - `localtenniscourts.com` (the site named in the original brief as a
+    Highbury+ITC-outdoor aggregator) is a client-rendered SPA (Vite bundle,
+    no `__NEXT_DATA__`/`__INITIAL_STATE__`) — a plain `curl` of the page returns
+    no embedded JSON and no discoverable API URL. Its data comes from
+    client-side JS calls; the actual endpoint is inside `/assets/*.js`, which a
+    static fetch doesn't reveal. Next step if pursuing this venue: fetch and
+    grep the JS bundle for the API base URL, or drive it with a headless
+    browser (e.g. Playwright) and capture the network requests it makes.
+  - Until one of these resolves to a real, non-empty feed, don't add Highbury
+    to `VENUES` — a 0-record "valid" slug would silently never alert while
+    looking configured.
 
 ## Gotchas when working on this routine
 

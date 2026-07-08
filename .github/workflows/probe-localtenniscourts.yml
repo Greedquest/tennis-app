@@ -1,0 +1,91 @@
+name: Probe localtenniscourts.com (throwaway)
+
+on:
+  push:
+    branches:
+      - claude/great-wright-pctu1r
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch page HTML
+        run: |
+          curl -sS -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+            "https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor" \
+            -o page.html -w "HTTP status: %{http_code}\n"
+          echo "--- bytes: $(wc -c < page.html) ---"
+
+      - name: Look for embedded SSR JSON / framework markers
+        run: |
+          echo "--- __NEXT_DATA__ present? ---"
+          grep -o "__NEXT_DATA__" page.html || echo "no"
+          echo "--- __NUXT__ present? ---"
+          grep -o "window.__NUXT__" page.html || echo "no"
+          echo "--- script src list ---"
+          grep -oE '<script[^>]*src="[^"]+"' page.html | sed -E 's/.*src="([^"]+)".*/\1/' | sort -u
+          echo "--- any inline api-looking strings ---"
+          grep -oE '"/api/[a-zA-Z0-9/_-]*"' page.html | sort -u | head -50
+          grep -oE 'https?://[a-zA-Z0-9.-]*api[a-zA-Z0-9.-]*/[a-zA-Z0-9/_-]*' page.html | sort -u | head -50
+
+      - name: Save raw HTML head/tail for inspection
+        run: |
+          echo "--- first 200 lines ---"
+          head -n 200 page.html
+          echo "--- last 100 lines ---"
+          tail -n 100 page.html
+
+      - name: Install Playwright to capture real network requests
+        run: |
+          pip install playwright
+          playwright install --with-deps chromium
+
+      - name: Capture network requests with headless browser
+        run: |
+          cat > capture.py <<'PYEOF'
+          import json
+          from playwright.sync_api import sync_playwright
+
+          requests_seen = []
+
+          def on_request(request):
+              requests_seen.append({"method": request.method, "url": request.url})
+
+          with sync_playwright() as p:
+              browser = p.chromium.launch()
+              page = browser.new_page()
+              page.on("request", on_request)
+              page.goto(
+                  "https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor",
+                  wait_until="networkidle",
+                  timeout=30000,
+              )
+              page.wait_for_timeout(5000)
+              html = page.content()
+              with open("rendered.html", "w") as f:
+                  f.write(html)
+              browser.close()
+
+          # Filter to interesting (non-asset) requests
+          interesting = [
+              r for r in requests_seen
+              if not any(r["url"].endswith(ext) for ext in (".css", ".js", ".png", ".jpg", ".svg", ".woff", ".woff2", ".ico"))
+          ]
+          print("=== ALL REQUESTS ===")
+          for r in requests_seen:
+              print(r["method"], r["url"])
+          print("=== INTERESTING (non-asset) REQUESTS ===")
+          for r in interesting:
+              print(r["method"], r["url"])
+          with open("requests.json", "w") as f:
+              json.dump(requests_seen, f, indent=2)
+          PYEOF
+          python capture.py || echo "CAPTURE_FAILED $?"
+
+      - name: Show rendered HTML sample
+        run: |
+          echo "--- rendered.html first 300 lines ---"
+          head -n 300 rendered.html || echo "no rendered.html"

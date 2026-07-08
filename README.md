@@ -2,6 +2,38 @@
 
 A Python application for polling tennis court availability and sending email notifications via Gmail.
 
+## Local Wednesday-evening court watch
+
+`scripts/local_court_watch.py` is a separate, standalone script (not the cloud
+GitHub Actions poller above) for one specific alert: a slot starting at or
+after 19:00 on **Wednesday**, at Islington Tennis Centre (outdoor) or Highbury
+Fields, flipping from fully booked to free. It only ever fires a desktop
+notification -- it never books anything.
+
+It's meant to run from cron (or Termux's crontab on Android) every 5 minutes,
+year-round; the script itself checks that it's Wednesday between midday and
+22:00 and no-ops quietly otherwise, so a single cron entry installed once is
+enough:
+
+```cron
+*/5 * * * * cd /path/to/tennis-app && PYTHONPATH=. python3 scripts/local_court_watch.py >> /tmp/tennis-watch.log 2>&1
+```
+
+Only needs `requests` (no `polars`/`redmail`). Notifications try, in order:
+Termux (`termux-notification`), macOS (`osascript`), Linux (`notify-send`),
+falling back to a printed line if none are available.
+
+To test without hitting the live API or waiting for Wednesday:
+
+```sh
+PYTHONPATH=. python scripts/local_court_watch.py --force \
+  --fixtures testing/fixtures/late_wed_slot_booked.json --date 2026-07-08 --cache /tmp/watch.json
+PYTHONPATH=. python scripts/local_court_watch.py --force \
+  --fixtures testing/fixtures/late_wed_slot_free.json --date 2026-07-08 --cache /tmp/watch.json
+```
+
+The second run should report the Islington Tennis Centre slot as newly opened.
+
 ## Dashboard
 
 A Marimo notebook has been set up to help debug the app.

@@ -1,0 +1,29 @@
+[
+  {
+    "starts_at": {"format_12_hour": "9:00am", "format_24_hour": "09:00"},
+    "ends_at": {"format_12_hour": "10:00am", "format_24_hour": "10:00"},
+    "date": "2026-07-08",
+    "venue": "islington-tennis-centre",
+    "court": "tennis-court-outdoor",
+    "location": "Islington Tennis Centre",
+    "spaces": 2
+  },
+  {
+    "starts_at": {"format_12_hour": "7:00pm", "format_24_hour": "19:00"},
+    "ends_at": {"format_12_hour": "8:00pm", "format_24_hour": "20:00"},
+    "date": "2026-07-08",
+    "venue": "islington-tennis-centre",
+    "court": "tennis-court-outdoor",
+    "location": "Islington Tennis Centre",
+    "spaces": 1
+  },
+  {
+    "starts_at": {"format_12_hour": "8:00pm", "format_24_hour": "20:00"},
+    "ends_at": {"format_12_hour": "9:00pm", "format_24_hour": "21:00"},
+    "date": "2026-07-08",
+    "venue": "islington-parks",
+    "court": "highbury-fields-activities",
+    "location": "Highbury Fields",
+    "spaces": 0
+  }
+]

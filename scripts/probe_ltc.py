@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
-"""Throwaway probe v4: is the availability table server-rendered (no JS needed)?
+"""Throwaway probe v5: confirmed SSR (raw GET has full table+tbody).
 
-v3 showed table rows with real availability data appear ~1s after load, but
-no XHR/fetch/websocket request was ever observed besides the single GET for
-the page itself. That points to server-side rendering: the initial HTML
-response already contains the filled-in table, and the JS bundle just
-hydrates it (no client-side data fetch).
+v4 confirmed the raw, un-rendered HTML response already contains
+``<tbody>`` and slot-count data ("court"/"courts" occurs 33 times) --
+this table is server-rendered, no browser/XHR needed for production polling.
 
-This probe does a plain ``requests.get`` (no browser at all) and checks
-whether the raw response body already contains the table with real slot
-counts. If so, production polling can be a simple HTTP GET + HTML parse,
-no Playwright/browser dependency needed.
+v4's naive non-greedy ``<table>.*?</table>`` regex only matched a *separate*
+header-only <table> (sticky header pattern), missing the real data table.
+This probe finds every top-level <table>...</table> block and dumps the one
+containing <tbody>, plus a couple of raw <tr> rows, so we can write an
+accurate parser.
 
 Usage: python scripts/probe_ltc.py
 """
@@ -33,31 +32,29 @@ def main() -> int:
         "Accept": "text/html,application/xhtml+xml",
     }
     r = requests.get(URL, headers=headers, timeout=20)
-    print(f"Status: {r.status_code}", file=sys.stderr)
     html = r.text
-    print(f"Raw HTML length: {len(html)}")
+    print(f"Status: {r.status_code}, length: {len(html)}", file=sys.stderr)
 
-    print("\n--- has <tbody> ---")
-    print("<tbody" in html)
+    tables = re.findall(r"<table[^>]*>.*?</table>", html, re.DOTALL)
+    print(f"\n--- NUMBER OF <table> BLOCKS: {len(tables)} ---")
+    for i, t in enumerate(tables):
+        print(f"table[{i}] length={len(t)} has_tbody={'<tbody' in t}")
 
-    print("\n--- has 'Wed 08' header text ---")
-    print("Wed 08" in html)
+    data_table = next((t for t in tables if "<tbody" in t), None)
+    print("\n--- DATA TABLE (the one with <tbody>) ---")
+    print(data_table)
 
-    print("\n--- count of 'court' occurrences ---")
-    print(html.count("court"))
-
-    # Try to locate the table and print it verbatim
-    m = re.search(r"<table.*?</table>", html, re.DOTALL)
-    print("\n--- TABLE MATCH FOUND ---")
-    print(bool(m))
-    if m:
-        print("\n--- TABLE HTML (verbatim from raw response) ---")
-        print(m.group(0))
-
-    # Also check for any inline JSON-looking payload (e.g. __DATA__, window.__)
-    print("\n--- inline script data markers ---")
-    for marker in ("__DATA__", "window.__", "application/json", "self.__next_f"):
-        print(marker, "->", marker in html)
+    if data_table:
+        rows = re.findall(r"<tr[^>]*>.*?</tr>", data_table, re.DOTALL)
+        print(f"\n--- NUMBER OF <tr> IN DATA TABLE: {len(rows)} ---")
+        print("\n--- FIRST 3 ROWS ---")
+        for row in rows[:3]:
+            print(row)
+        print("\n--- A ROW CONTAINING 'court' (if any) ---")
+        for row in rows:
+            if "court" in row:
+                print(row)
+                break
 
     return 0
 

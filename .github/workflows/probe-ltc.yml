@@ -1,0 +1,55 @@
+name: Probe localtenniscourts.com
+
+on:
+  push:
+    branches:
+      - claude/great-wright-nvwwp0
+    paths:
+      - '.github/workflows/probe-ltc.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch page and inspect for API hints
+        run: |
+          set -x
+          URL="https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor"
+          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+          echo "=== Plain GET of query page ==="
+          curl -sS -D /tmp/headers.txt -A "$UA" "$URL" -o /tmp/page.html -w "HTTP_CODE:%{http_code}\n"
+          echo "--- headers ---"
+          cat /tmp/headers.txt
+          echo "--- size ---"
+          wc -c /tmp/page.html
+          echo "--- first 300 lines ---"
+          head -n 300 /tmp/page.html
+
+          echo "=== grep for api/json/fetch hints ==="
+          grep -Eo '(https?:)?//[a-zA-Z0-9._/-]*(api|json|graphql)[a-zA-Z0-9._/-]*' /tmp/page.html | sort -u || true
+          grep -Eo 'src="[^"]+\.js"' /tmp/page.html | sort -u || true
+          grep -Eo '"(GET|POST) [^"]+"' /tmp/page.html | sort -u || true
+
+          echo "=== robots.txt ==="
+          curl -sS -A "$UA" "https://localtenniscourts.com/robots.txt" -w "\nHTTP_CODE:%{http_code}\n" || true
+
+          echo "=== sitemap.xml ==="
+          curl -sS -A "$UA" "https://localtenniscourts.com/sitemap.xml" -w "\nHTTP_CODE:%{http_code}\n" | head -c 2000 || true
+
+          echo "=== try common API guesses ==="
+          for path in "/api/courts" "/api/venues" "/api/availability" "/api/slots" "/wp-json" "/wp-json/wp/v2/types"; do
+            echo "-- $path --"
+            curl -sS -A "$UA" -H "Accept: application/json" "https://localtenniscourts.com$path" -w "\nHTTP_CODE:%{http_code}\n" | head -c 1000
+            echo
+          done
+
+      - name: Upload full HTML as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ltc-page-dump
+          path: /tmp/page.html
+          retention-days: 1

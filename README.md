@@ -2,6 +2,24 @@
 
 A Python application for polling tennis court availability and sending email notifications via Gmail.
 
+## Wednesday-evening Highbury Fields watch
+
+`scripts/highbury_wednesday_watch.py` is a standalone local script (not part
+of the cloud poller) that watches Highbury Fields via
+[localtenniscourts.com](https://localtenniscourts.com/?q=highbury-fields)
+and fires a desktop/Termux notification the moment a slot starting ≥19:00 on
+Wednesday flips from booked to free. Alert only — no booking automation.
+
+```sh
+pip install requests beautifulsoup4
+python scripts/highbury_wednesday_watch.py --no-notify --force  # local test
+```
+
+It needs 5-minute polling on Wednesdays only, so schedule it yourself with
+cron / Termux+Tasker (see the script's docstring for a crontab example) —
+see `CLAUDE.md` for the full routine notes, including why Islington Tennis
+Centre outdoor isn't covered by this script.
+
 ## Dashboard
 
 A Marimo notebook has been set up to help debug the app.

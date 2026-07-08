@@ -1,0 +1,29 @@
+name: Probe LTC (throwaway)
+
+on:
+  push:
+    branches:
+      - claude/great-wright-uwciar
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6.1.0
+        with:
+          python-version: '3.12'
+
+      - name: Install Playwright
+        run: |
+          pip install playwright
+          playwright install --with-deps chromium
+
+      - name: Probe localtenniscourts.com
+        run: python scripts/probe_ltc.py

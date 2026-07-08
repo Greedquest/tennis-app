@@ -107,6 +107,18 @@ def main() -> int:
         for f in frags[:60]:
             print(f"    {f}")
 
+    TIME_RE = re.compile(r"\b\d{1,2}:\d{2}\b")
+    for s in all_js:
+        if s.startswith("http") and "localtenniscourts.com" not in s:
+            continue
+        url = s if s.startswith("http") else (BASE.rstrip("/") + "/" + s.lstrip("/"))
+        try:
+            body = requests.get(url, headers=HEADERS, timeout=20).text
+        except Exception:
+            continue
+        times = TIME_RE.findall(body)
+        print(f"--- {len(times)} HH:MM-like strings in raw (unexecuted) {url}: {sorted(set(times))[:30]} ---")
+
     # A few common guesses, just in case.
     for guess in ["api/availability", "api/courts", "api/slots", "api/venues", "robots.txt", "sitemap.xml"]:
         try:

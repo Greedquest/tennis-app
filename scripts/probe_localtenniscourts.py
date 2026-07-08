@@ -24,8 +24,12 @@ HEADERS = {
 }
 
 SCRIPT_SRC_RE = re.compile(r'<script[^>]+src=["\']([^"\']+)["\']', re.IGNORECASE)
+MODULEPRELOAD_RE = re.compile(r'<link[^>]+rel=["\']modulepreload["\'][^>]+href=["\']([^"\']+)["\']', re.IGNORECASE)
 NEXT_DATA_RE = re.compile(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', re.DOTALL)
-API_LIKE_RE = re.compile(r'["\']([^"\']*(?:/api/|\.json|\bapi\b)[^"\']*)["\']', re.IGNORECASE)
+API_LIKE_RE = re.compile(
+    r'["\']((?:https?:)?//[^"\']*|/[a-zA-Z0-9_\-./]*(?:api|json|supabase|firebase|worker|function)[^"\']*)["\']',
+    re.IGNORECASE,
+)
 
 
 def get(url: str) -> requests.Response:
@@ -51,20 +55,21 @@ def main() -> int:
         print("\n--- no __NEXT_DATA__ block found ---")
 
     scripts = SCRIPT_SRC_RE.findall(html)
+    modulepreloads = MODULEPRELOAD_RE.findall(html)
     print(f"\n--- {len(scripts)} <script src> tags ---")
     for s in scripts:
         print(s)
+    print(f"\n--- {len(modulepreloads)} <link rel=modulepreload> tags ---")
+    for m in modulepreloads:
+        print(m)
 
-    api_like = sorted(set(API_LIKE_RE.findall(html)))
-    print(f"\n--- {len(api_like)} api-like strings in raw HTML ---")
-    for a in api_like:
-        print(a)
+    all_js = list(scripts) + list(modulepreloads)
 
     # Fetch same-origin JS bundles and grep them for API endpoint patterns.
-    for s in scripts:
+    for s in all_js:
         if s.startswith("http") and "localtenniscourts.com" not in s:
             continue
-        url = s if s.startswith("http") else (BASE.rstrip("/") + s if s.startswith("/") else BASE + s)
+        url = s if s.startswith("http") else (BASE.rstrip("/") + s.lstrip("/"))
         try:
             jr = get(url)
         except Exception as e:
@@ -73,11 +78,10 @@ def main() -> int:
         if not jr.ok:
             continue
         body = jr.text
-        hits = sorted(set(API_LIKE_RE.findall(body)))[:40]
-        if hits:
-            print(f"  api-like strings in {url}:")
-            for h in hits:
-                print(f"    {h}")
+        hits = sorted(set(API_LIKE_RE.findall(body)))
+        print(f"  {len(hits)} api/url-like strings in {url} (showing up to 80):")
+        for h in hits[:80]:
+            print(f"    {h}")
 
     # A few common guesses, just in case.
     for guess in ["api/availability", "api/courts", "api/slots", "api/venues", "robots.txt", "sitemap.xml"]:

@@ -10,14 +10,29 @@ JSON endpoint, or do we need to scrape rendered HTML?
 """
 
 import json
+import re
 import sys
 
+import requests
 from playwright.sync_api import sync_playwright
 
 URL = "https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor"
 
 
+def probe_plain_http() -> None:
+    """Fetch with a plain GET (no JS) to see if the data is already server-rendered."""
+    r = requests.get(URL, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+    print(f"\n--- PLAIN HTTP GET: status={r.status_code} len={len(r.text)} ---")
+    # Find the table (or main content) and print a chunk around the first
+    # occurrence of a time-like string, so we can see real markup/attributes.
+    m = re.search(r"08:00", r.text)
+    start = max(0, (m.start() - 500)) if m else 0
+    print(r.text[start : start + 6000])
+
+
 def main() -> int:
+    probe_plain_http()
+
     api_like: list[dict] = []
 
     with sync_playwright() as p:

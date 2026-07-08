@@ -12,57 +12,46 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Setup Python
-        uses: actions/setup-python@v6.1.0
-        with:
-          python-version: '3.12'
+      - name: Fetch full HTML and search for embedded data
+        run: |
+          curl -sL -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+            "https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor" \
+            -o page.html -w "HTTP status: %{http_code}\n"
+          echo "--- total bytes: $(wc -c < page.html) ---"
+          echo "--- keyword search across FULL html ---"
+          grep -oiE '(highbury|islington|clissold|spaces|venue|court|tennis-court|booking|__DATA__|<script type="application/json")' page.html | sort | uniq -c | sort -rn | head -40
+          echo "--- script tag boundaries ---"
+          grep -oE '<script[^>]*>' page.html
+          echo "--- last 4000 chars of body (often where hydration data sits) ---"
+          tail -c 4000 page.html
+          echo ""
+          echo "--- chars 3000-9000 ---"
+          dd if=page.html bs=1 skip=3000 count=6000 2>/dev/null
 
-      - name: Install Playwright
+      - name: Try loading with a real desktop UA and longer wait via playwright, extract DOM text
         run: |
           pip install playwright
           playwright install --with-deps chromium
-
-      - name: Capture network requests
-        run: |
           python3 - <<'EOF'
-          import json
           from playwright.sync_api import sync_playwright
-
-          requests_log = []
-
-          def on_request(req):
-              requests_log.append({"type": "request", "method": req.method, "url": req.url})
-
-          def on_response(res):
-              try:
-                  ct = res.headers.get("content-type", "")
-              except Exception:
-                  ct = ""
-              entry = {"type": "response", "status": res.status, "url": res.url, "content_type": ct}
-              if "json" in ct or "api" in res.url.lower():
-                  try:
-                      entry["body_snippet"] = res.text()[:2000]
-                  except Exception as e:
-                      entry["body_err"] = str(e)
-              requests_log.append(entry)
-
           with sync_playwright() as p:
               browser = p.chromium.launch()
               page = browser.new_page()
-              page.on("request", on_request)
-              page.on("response", on_response)
               page.goto(
                   "https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor",
-                  wait_until="networkidle",
+                  wait_until="load",
                   timeout=30000,
               )
-              page.wait_for_timeout(4000)
+              page.wait_for_timeout(6000)
+              body_text = page.inner_text("body")
+              print("BODY TEXT LENGTH:", len(body_text))
+              print(body_text[:4000])
+              print("--- HTML snapshot length ---")
+              html = page.content()
+              print(len(html))
+              with open("rendered.html", "w") as f:
+                  f.write(html)
               browser.close()
-
-          non_asset = [
-              r for r in requests_log
-              if not any(seg in r["url"] for seg in ["/assets/", "googletagmanager", "buymeacoffee", "favicon", "font", "cdn-cgi", ".css", ".png", ".ico", ".svg", ".webmanifest"])
-          ]
-          print(f"Total requests: {len(requests_log)}; non-asset: {len(non_asset)}")
-          print(json.dumps(non_asset, indent=2)[:8000])
           EOF
+          echo "--- rendered.html keyword counts ---"
+          grep -oiE '(highbury|islington|clissold|spaces|court|£|pm|am)' rendered.html | sort | uniq -c | sort -rn | head -40

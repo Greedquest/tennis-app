@@ -15,6 +15,23 @@ from playwright.sync_api import sync_playwright
 URL = "https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor"
 
 
+def dump_network_and_html(page, label):
+    html = page.content()
+    print(f"--- [{label}] URL ---")
+    print(page.url)
+    print(f"--- [{label}] TITLE ---")
+    print(page.title())
+    print(f"--- [{label}] HTML LENGTH --- {len(html)}")
+    print(f"--- [{label}] FULL HTML ---")
+    print(html)
+
+    # links that might lead to a per-venue timetable page
+    hrefs = sorted(set(re.findall(r'href="([^"]+)"', html)))
+    print(f"--- [{label}] LINKS ({len(hrefs)}) ---")
+    for h in hrefs:
+        print(h)
+
+
 def main() -> None:
     with sync_playwright() as p:
         browser = p.chromium.launch()
@@ -23,12 +40,14 @@ def main() -> None:
 
         def on_response(response):
             req = response.request
-            if req.resource_type in ("xhr", "fetch"):
-                ctype = response.headers.get("content-type", "")
+            ctype = response.headers.get("content-type", "")
+            interesting = req.resource_type in ("xhr", "fetch") or "json" in ctype
+            if interesting:
                 entry = {
                     "url": response.url,
                     "method": req.method,
                     "status": response.status,
+                    "resource_type": req.resource_type,
                     "content_type": ctype,
                 }
                 if "json" in ctype:
@@ -41,27 +60,36 @@ def main() -> None:
 
         page.on("response", on_response)
         page.goto(URL, wait_until="networkidle", timeout=30000)
-        page.wait_for_timeout(3000)
+        page.wait_for_timeout(2000)
 
-        print("--- PAGE TITLE ---")
-        print(page.title())
+        dump_network_and_html(page, "landing")
 
-        html = page.content()
-        print("--- HTML LENGTH ---", len(html))
+        # Try to find and click a link/card leading to an actual venue
+        # timetable (heuristics: hrefs containing 'venue' or the slugs
+        # themselves, or clickable cards containing the venue names).
+        candidates = page.locator(
+            "a[href*='highbury'], a[href*='islington'], a[href*='venue'], a[href*='court']"
+        )
+        count = candidates.count()
+        print(f"--- CANDIDATE VENUE LINKS: {count} ---")
+        for i in range(min(count, 5)):
+            try:
+                print(candidates.nth(i).get_attribute("href"))
+            except Exception as e:  # noqa: BLE001
+                print("err reading href:", e)
 
-        m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.S)
-        if m:
-            print("--- __NEXT_DATA__ ---")
-            print(m.group(1)[:6000])
-
-        # Fallback: any inline <script> blob mentioning "slot", "court", or "available"
-        for i, block in enumerate(re.findall(r"<script[^>]*>(.*?)</script>", html, re.S)):
-            if re.search(r"slot|court|available|booking", block, re.I) and len(block) > 200:
-                print(f"--- INLINE SCRIPT #{i} (matched keywords) ---")
-                print(block[:3000])
-
-        print("--- ALL XHR/FETCH SUMMARY ---")
-        print(json.dumps(seen, indent=2)[:10000])
+        if count > 0:
+            seen.clear()
+            href = candidates.first.get_attribute("href")
+            print(f"--- NAVIGATING TO FIRST CANDIDATE: {href} ---")
+            candidates.first.click()
+            page.wait_for_timeout(2000)
+            try:
+                page.wait_for_load_state("networkidle", timeout=15000)
+            except Exception as e:  # noqa: BLE001
+                print("networkidle wait failed:", e)
+            page.wait_for_timeout(2000)
+            dump_network_and_html(page, "venue-page")
 
         browser.close()
 

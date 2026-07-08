@@ -20,4 +20,5 @@ logging.basicConfig(
 VENUES = [
     {"venue": "islington-tennis-centre", "court": "tennis-court-indoor"},
     {"venue": "islington-tennis-centre", "court": "tennis-court-outdoor"},
+    {"venue": "islington-parks", "court": "tennis-court-outdoor"},  # Highbury Fields
 ]

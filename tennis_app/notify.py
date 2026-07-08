@@ -39,13 +39,19 @@ def _dataframe_to_html(df: pl.DataFrame) -> str:
     return "\n".join(parts)
 
 
-def send_email(subject: str, changed_rows: pl.DataFrame) -> None:
+def send_email(
+    subject: str,
+    changed_rows: pl.DataFrame,
+    *,
+    heading: str = "Tennis Court Availability Changes",
+) -> None:
     """
     Send an HTML email with a table of changed tennis court availability.
 
     Args:
         subject: Email subject line
         changed_rows: Polars DataFrame of rows that have changed
+        heading: H2 heading shown above the table in the email body
     """
     if not EMAIL_FROM or not EMAIL_TO:
         raise RuntimeError("EMAIL_FROM/EMAIL_TO not configured")
@@ -62,7 +68,7 @@ def send_email(subject: str, changed_rows: pl.DataFrame) -> None:
     table_html = _dataframe_to_html(changed_rows.select(display_columns))
 
     body = f"""
-    <h2>Tennis Court Availability Changes</h2>
+    <h2>{html.escape(heading)}</h2>
     <p>{len(changed_rows)} availability change(s) detected:</p>
     {table_html}
     """

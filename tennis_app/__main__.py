@@ -52,7 +52,9 @@ def main(argv: list[str] | None = None) -> int:
             return 1
     else:
         logging.info("Fetching activities from Better Admin API…")
-        raw_records = fetch_all_activities()
+        # 7 days ahead so the upcoming Wednesday is always in range, regardless
+        # of which day the poller happens to run on.
+        raw_records = fetch_all_activities(days_ahead=7)
 
     run(raw_records, cache_path=args.cache, notify=not args.no_notify)
     return 0

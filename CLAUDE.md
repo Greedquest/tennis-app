@@ -8,21 +8,23 @@
 
 Target behavior for this routine is to alert when a tennis slot starting
 ≥19:00 on **Wednesday** flips from booked to free (alert only — no booking).
-Current repository code is still on the generic poller/diff flow described
-below unless and until the Wednesday-watch implementation lands.
+This is now the live implementation (landed via `filter_wednesday_evening` +
+`diff_booked_to_free` in `tennis_app/transform.py`, wired through
+`tennis_app/pipeline.run()`).
 
 ## What the routine does
 
-- Poller (current): `.github/workflows/poller.yml`, cron `* * * * *` (every minute).
-- Each run: fetch → `tennis_app/pipeline.run()` → email via Gmail SMTP if a watched slot opened up, else log quietly and exit.
-- Alerting (current) uses generic change detection (`diff_tables`) and emails on any detected row change.
-- Cross-run cache: `actions/cache` (keyed per run_id + prefix restore) holds `cache/state.json`. If it's ever lost, the next run has no baseline and correctly stays silent.
+- Poller: `.github/workflows/poller.yml`, cron `* * * * *` (every minute).
+- Each run: fetch (7 days ahead, so the upcoming Wednesday is always in range) → `tennis_app/pipeline.run()` → email via Gmail SMTP if a watched slot flipped from booked to free, else log quietly and exit.
+- Alerting filters raw records to Wednesday slots starting ≥19:00 (`filter_wednesday_evening`), then emails only on a 0-spaces→>0-spaces flip (`diff_booked_to_free`). Non-Wednesday and daytime slots never reach the diff, so they can't trigger an email.
+- Cross-run cache: `actions/cache` (keyed per run_id + prefix restore) holds `cache/state.json` — now scoped to Wednesday-evening rows only. If it's ever lost, the next run has no baseline and correctly stays silent.
 - Secrets the routine needs: `EMAIL_FROM`, `EMAIL_TO`, `APP_PASSWORD` (GH Actions secrets).
 
 ## Venues watched
 
 - `islington-tennis-centre` / `tennis-court-indoor` + `tennis-court-outdoor`.
-- Highbury Fields (`islington-parks` / `tennis-court-outdoor`) is currently a probed candidate only; it's not in `tennis_app/config.py` yet.
+- Highbury Fields (`islington-parks` / `tennis-court-outdoor`) is now active in `tennis_app/config.py`.
+- `localtenniscourts.com` (a third-party aggregator UI) was evaluated as a possible data source and rejected: it's a client-rendered Next.js app with no JSON API, and its own server-side data fetch was erroring out ("Oops! There was a problem loading the court availability data") when probed from GitHub Actions. Better Admin remains the direct, reliable source.
 
 ## Gotchas when working on this routine
 

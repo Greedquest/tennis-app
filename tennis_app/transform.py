@@ -4,6 +4,8 @@ from datetime import UTC, datetime
 
 import polars as pl
 
+WEDNESDAY_ISOWEEKDAY = 3
+
 
 def tabularise(raw_records: list[dict]) -> pl.DataFrame:
     """
@@ -93,26 +95,49 @@ def key_of(row: dict) -> str:
     return f"{date_str}|{time_str}|{venue_str}"
 
 
-def diff_tables(curr: pl.DataFrame, prev: pl.DataFrame) -> list[str]:
+def filter_wednesday_evening(raw_records: list[dict], min_hour: int = 19) -> list[dict]:
     """
-    Compare two DataFrames and return keys of rows that changed.
+    Keep only raw activity records for Wednesday slots starting at/after ``min_hour``.
 
-    "Changed" means any field difference, or added/removed rows.
+    Reads ``date`` (YYYY-MM-DD) and ``starts_at.format_24_hour`` (HH:MM) directly off
+    the raw record, ahead of tabularise(), so the stable output schema is untouched.
     """
-    if prev.is_empty():
-        return [key_of(row) for row in curr.to_dicts()] if not curr.is_empty() else []
+    kept: list[dict] = []
+    for rec in raw_records:
+        date_str = rec.get("date")
+        time_24h = (rec.get("starts_at") or {}).get("format_24_hour")
+        if not date_str or not time_24h:
+            continue
+        try:
+            is_wednesday = datetime.strptime(date_str, "%Y-%m-%d").isoweekday() == WEDNESDAY_ISOWEEKDAY
+            hour = int(time_24h.split(":", 1)[0])
+        except (ValueError, IndexError):
+            continue
+        if is_wednesday and hour >= min_hour:
+            kept.append(rec)
+    return kept
 
-    if curr.is_empty():
-        return [key_of(row) for row in prev.to_dicts()]
+
+def diff_booked_to_free(curr: pl.DataFrame, prev: pl.DataFrame) -> list[str]:
+    """
+    Compare two DataFrames and return keys of rows that flipped from fully
+    booked (0 spaces) to free (>0 spaces). Rows absent from either side, and
+    rows that were already free or stayed booked, are not reported.
+    """
+    if prev.is_empty() or curr.is_empty():
+        return []
 
     prev_map = {key_of(row): row for row in prev.to_dicts()}
     curr_map = {key_of(row): row for row in curr.to_dicts()}
 
-    changed_keys: list[str] = []
-    all_keys = sorted(set(prev_map.keys()) | set(curr_map.keys()))
-    for k in all_keys:
-        a, b = prev_map.get(k), curr_map.get(k)
-        if a is None or b is None or a != b:
-            changed_keys.append(k)
+    opened_keys: list[str] = []
+    for k, curr_row in curr_map.items():
+        prev_row = prev_map.get(k)
+        if prev_row is None:
+            continue
+        prev_spaces = prev_row.get("Spaces") or 0
+        curr_spaces = curr_row.get("Spaces") or 0
+        if prev_spaces == 0 and curr_spaces > 0:
+            opened_keys.append(k)
 
-    return changed_keys
+    return opened_keys

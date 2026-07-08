@@ -14,42 +14,29 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch page and inspect for API hints
+      - name: Fetch JS bundles and grep for API/data hints
         run: |
           set -x
-          URL="https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor"
           UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-          echo "=== Plain GET of query page ==="
-          curl -sS -D /tmp/headers.txt -A "$UA" "$URL" -o /tmp/page.html -w "HTTP_CODE:%{http_code}\n"
-          echo "--- headers ---"
-          cat /tmp/headers.txt
-          echo "--- size ---"
-          wc -c /tmp/page.html
-          echo "--- first 300 lines ---"
-          head -n 300 /tmp/page.html
-
-          echo "=== grep for api/json/fetch hints ==="
-          grep -Eo '(https?:)?//[a-zA-Z0-9._/-]*(api|json|graphql)[a-zA-Z0-9._/-]*' /tmp/page.html | sort -u || true
-          grep -Eo 'src="[^"]+\.js"' /tmp/page.html | sort -u || true
-          grep -Eo '"(GET|POST) [^"]+"' /tmp/page.html | sort -u || true
-
-          echo "=== robots.txt ==="
-          curl -sS -A "$UA" "https://localtenniscourts.com/robots.txt" -w "\nHTTP_CODE:%{http_code}\n" || true
-
-          echo "=== sitemap.xml ==="
-          curl -sS -A "$UA" "https://localtenniscourts.com/sitemap.xml" -w "\nHTTP_CODE:%{http_code}\n" | head -c 2000 || true
-
-          echo "=== try common API guesses ==="
-          for path in "/api/courts" "/api/venues" "/api/availability" "/api/slots" "/wp-json" "/wp-json/wp/v2/types"; do
-            echo "-- $path --"
-            curl -sS -A "$UA" -H "Accept: application/json" "https://localtenniscourts.com$path" -w "\nHTTP_CODE:%{http_code}\n" | head -c 1000
-            echo
+          for asset in "/assets/index-Bf7utVcV.js" "/assets/main-DLXMVjOc.js"; do
+            echo "=== $asset ==="
+            curl -sS -A "$UA" "https://localtenniscourts.com$asset" -o /tmp/bundle.js -w "HTTP_CODE:%{http_code} SIZE:%{size_download}\n"
+            echo "--- fetch/axios/api calls ---"
+            grep -oE '(fetch|axios\.[a-z]+)\(["'"'"'`][^"'"'"'`]{0,200}' /tmp/bundle.js | sort -u | head -40
+            echo "--- string literals containing api/supabase/graphql/http ---"
+            grep -oE '"[^"]{0,10}(api|supabase|graphql|firestore|convex|functions)[^"]{0,120}"' /tmp/bundle.js | sort -u | head -40
+            echo "--- any https:// literals ---"
+            grep -oE 'https?://[a-zA-Z0-9._/%?=&-]{5,120}' /tmp/bundle.js | sort -u | head -60
+            echo "--- createServerFn / _serverFn hints ---"
+            grep -oE '[a-zA-Z0-9_/-]*[sS]erver[fF]n[a-zA-Z0-9_/-]*' /tmp/bundle.js | sort -u | head -20
+            echo "--- size on disk ---"
+            wc -c /tmp/bundle.js
           done
 
-      - name: Upload full HTML as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ltc-page-dump
-          path: /tmp/page.html
-          retention-days: 1
+          echo "=== direct known-endpoint guesses with TSR-ish headers ==="
+          for path in "/highbury-fields" "/islington-tennis-centre-outdoor" "/api/venues/highbury-fields" "/_serverFn/getCourts" ; do
+            echo "-- $path --"
+            curl -sS -A "$UA" -H "Accept: text/x-component" "https://localtenniscourts.com$path" -w "\nHTTP_CODE:%{http_code}\n" | head -c 500
+            echo
+          done

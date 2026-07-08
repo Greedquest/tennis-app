@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Throwaway probe: inspect localtenniscourts.com for an underlying JSON API.
+"""Throwaway probe, round 2: inspect the localtenniscourts.com JS bundles.
 
-Run only where there's real network egress (the sandbox proxy blocks this
-host, per CLAUDE.md gotchas) — e.g. as a one-off GitHub Actions job. Fetches
-the page HTML and greps for script tags, inline JSON, and any URL-shaped
-strings that look like API/data endpoints, so we can tell whether this is a
-server-rendered page or a JS app backed by a fetchable JSON API.
+Round 1 (Playwright, full page load) captured every network response and
+found NO XHR/fetch call carrying court data — only the HTML shell, two JS
+bundles, a CSS file, and third-party analytics/widget requests. That means
+either the data is baked into the JS bundle at build time, or it's fetched
+by some code path this quick page-load probe didn't trigger. This round
+downloads the two bundle files directly (plain HTTPS GET, no browser needed)
+and greps them for anything API/data-shaped: fetch(...) calls, request-y
+URLs, and known keywords from our own better-admin/bookings integration.
 """
 
 import re
@@ -13,7 +16,11 @@ import sys
 
 import requests
 
-URL = "https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor"
+BASE = "https://localtenniscourts.com"
+ASSETS = [
+    "/assets/index-Bf7utVcV.js",
+    "/assets/main-DLXMVjOc.js",
+]
 
 HEADERS = {
     "User-Agent": (
@@ -21,39 +28,47 @@ HEADERS = {
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/120.0.0.0 Safari/537.36"
     ),
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 
-URL_RE = re.compile(r"""["'](https?://[^"']+|/[a-zA-Z0-9_\-/.]*(?:api|json|ajax)[a-zA-Z0-9_\-/.?=&]*)["']""", re.I)
-SCRIPT_SRC_RE = re.compile(r'<script[^>]+src=["\']([^"\']+)["\']', re.I)
+URL_RE = re.compile(r"""https?://[^\s"'`)]+""")
+KEYWORDS = [
+    "better-admin",
+    "bookings.better",
+    "better.org.uk",
+    "fetch(",
+    "XMLHttpRequest",
+    "axios",
+    "/api/",
+    ".json",
+    "highbury",
+    "islington",
+    "availability",
+    "spaces",
+]
 
 
 def main() -> int:
-    print(f"GET {URL}")
-    r = requests.get(URL, headers=HEADERS, timeout=20)
-    print(f"status={r.status_code} content-length={len(r.text)}")
-    print(f"content-type={r.headers.get('content-type')}")
+    for path in ASSETS:
+        url = BASE + path
+        print(f"\n=== GET {url} ===")
+        r = requests.get(url, headers=HEADERS, timeout=20)
+        print(f"status={r.status_code} length={len(r.text)}")
+        text = r.text
 
-    html = r.text
+        print("--- unique http(s) URLs referenced ---")
+        for u in sorted(set(URL_RE.findall(text))):
+            print(u)
 
-    print("\n--- <script src=...> tags ---")
-    for m in sorted(set(SCRIPT_SRC_RE.findall(html))):
-        print(m)
-
-    print("\n--- candidate API/JSON-looking URLs found anywhere in HTML ---")
-    for m in sorted(set(URL_RE.findall(html))):
-        print(m)
-
-    print("\n--- lines mentioning 'fetch(' or 'XMLHttpRequest' or 'axios' ---")
-    for line in html.splitlines():
-        if any(tok in line for tok in ("fetch(", "XMLHttpRequest", "axios", "api/", ".json")):
-            print(line.strip()[:300])
-
-    print("\n--- first 3000 chars of body (to check server-rendered vs SPA shell) ---")
-    print(html[:3000])
-
-    print("\n--- last 2000 chars of body ---")
-    print(html[-2000:])
+        print("--- keyword hits (keyword: count) ---")
+        for kw in KEYWORDS:
+            count = text.count(kw)
+            if count:
+                print(f"{kw}: {count}")
+                # show first occurrence with context
+                idx = text.find(kw)
+                start = max(0, idx - 150)
+                end = min(len(text), idx + 150)
+                print(f"    context: ...{text[start:end]}...")
 
     return 0
 

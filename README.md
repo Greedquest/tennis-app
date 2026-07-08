@@ -15,6 +15,21 @@ pip install marimo anywidget polars requests
 marimo run dashboard.py
 ```
 
+## Wednesday-evening court watch (local script)
+
+`scripts/wednesday_watch.py` is a standalone monitor for Highbury Fields and
+Islington Tennis Centre - Outdoor: it alerts (desktop/mobile notification,
+no email, no booking) the moment a slot starting at or after 19:00 on a
+Wednesday flips from booked to free. It's meant to run from your own
+machine or phone (cron / Tasker / Termux), not as a cloud routine — see the
+docstring at the top of the script for the suggested crontab lines and for
+how to verify it without sending a real notification.
+
+```sh
+pip install requests
+python3 scripts/wednesday_watch.py --cache /tmp/ww_state.json --no-notify
+```
+
 ## GitHub Copilot Configuration
 
 This repository includes configuration for GitHub Copilot Cloud Agent to access external domains:

@@ -7,6 +7,7 @@ on:
     paths:
       - ".github/workflows/_probe-localtenniscourts.yml"
       - "scripts/_probe_localtenniscourts.py"
+      - "scripts/_probe_localtenniscourts_pw.py"
 
 permissions:
   contents: read
@@ -21,3 +22,5 @@ jobs:
           python-version: "3.12"
       - run: pip install requests
       - run: python scripts/_probe_localtenniscourts.py
+      - run: pip install playwright && python -m playwright install --with-deps chromium
+      - run: python scripts/_probe_localtenniscourts_pw.py

@@ -18,6 +18,11 @@ are already literal <td> markup in that response. A Playwright network
 trace of the live page independently confirmed zero XHR/fetch calls fire
 for the data - it is genuinely server-rendered, not client-fetched.
 
+The two venues only return data when queried together as one combined
+`?q=` value (querying "islington-tennis-centre-outdoor" alone returns an
+empty table), so this polls the single combined URL and reports one
+merged court count rather than a per-venue breakdown.
+
 Cron (Wednesdays, every 5 min from noon-22:00; the script itself re-checks
 the window too, so a simpler `*/5 * * * 3` entry is also safe):
     */5 12-21 * * 3 /usr/bin/python3 /path/to/watch_highbury_fields.py
@@ -43,12 +48,8 @@ from pathlib import Path
 import requests
 from bs4 import BeautifulSoup
 
-VENUES = {
-    "highbury-fields": "Highbury Fields",
-    "islington-tennis-centre-outdoor": "Islington Tennis Centre (Outdoor)",
-}
-
-PAGE_URL = "https://localtenniscourts.com/?q={slug}"
+VENUE_LABEL = "Highbury Fields / Islington Tennis Centre (Outdoor)"
+PAGE_URL = "https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor"
 
 HEADERS = {
     "User-Agent": (
@@ -68,15 +69,14 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger(__name__)
 
 
-def fetch_today_slots(slug: str) -> dict[str, int | None]:
+def fetch_today_slots() -> dict[str, int | None]:
     """Return {time_label: court_count_or_None} for today's column, times >= 19:00 only.
 
     Today is always the first data column in the table (the site shows a
     rolling window starting from the current day), so we don't need to
     parse the day-header dates at all.
     """
-    url = PAGE_URL.format(slug=slug)
-    r = requests.get(url, headers=HEADERS, timeout=20)
+    r = requests.get(PAGE_URL, headers=HEADERS, timeout=20)
     r.raise_for_status()
     soup = BeautifulSoup(r.text, "html.parser")
 
@@ -140,32 +140,27 @@ def main(argv: list[str] | None = None) -> int:
     today_key = now.date().isoformat()
     cache = load_cache(args.cache_path)
     cache = {k: v for k, v in cache.items() if k >= today_key}  # drop stale days
-    prev_today = cache.get(today_key, {})
-    curr_today: dict[str, dict[str, int | None]] = {}
+    prev_slots = cache.get(today_key, {})
 
-    for slug, label in VENUES.items():
-        try:
-            slots = fetch_today_slots(slug)
-        except Exception as e:
-            log.warning("Failed to fetch %s: %s", slug, e)
-            continue
+    try:
+        slots = fetch_today_slots()
+    except Exception as e:
+        log.warning("Failed to fetch availability: %s", e)
+        return 1
 
-        curr_today[slug] = slots
-        prev_slots = prev_today.get(slug, {})
+    for time_label, count in slots.items():
+        was_free = prev_slots.get(time_label) is not None
+        is_free = count is not None
+        if is_free and not was_free:
+            courts = f"{count} court{'s' if count != 1 else ''}"
+            message = f"{VENUE_LABEL}: {time_label} today just opened up ({courts} free)"
+            log.info("ALERT: %s", message)
+            if not args.no_notify:
+                send_notification("Tennis court free!", message)
 
-        for time_label, count in slots.items():
-            was_free = prev_slots.get(time_label) is not None
-            is_free = count is not None
-            if is_free and not was_free:
-                courts = f"{count} court{'s' if count != 1 else ''}"
-                message = f"{label}: {time_label} today just opened up ({courts} free)"
-                log.info("ALERT: %s", message)
-                if not args.no_notify:
-                    send_notification("Tennis court free!", message)
+    log.info("%s: %s", VENUE_LABEL, slots)
 
-        log.info("%s: %s", label, slots)
-
-    cache[today_key] = curr_today
+    cache[today_key] = slots
     save_cache(args.cache_path, cache)
     return 0
 

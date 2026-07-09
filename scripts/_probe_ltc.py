@@ -19,69 +19,90 @@ HEADERS = {
     ),
 }
 
-BUNDLES = [
+SEED_BUNDLES = [
     "/assets/main-DLXMVjOc.js",
     "/assets/index-Bf7utVcV.js",
 ]
 
-# Patterns that usually reveal a backend: absolute URLs, relative /api paths,
-# common BaaS hostnames, and fetch/axios call sites.
-URL_RE = re.compile(r"https?://[A-Za-z0-9_.\-]+(?:/[^\s\"'`)]*)?")
-REL_API_RE = re.compile(r"[\"'`](/[a-zA-Z0-9_\-./]*(?:api|court|venue|slot|avail)[a-zA-Z0-9_\-./]*)[\"'`]")
-FETCH_RE = re.compile(r"(fetch|axios\.(?:get|post)|\.get\(|\.post\()\s*\(\s*[\"'`]([^\"'`]+)")
+CHUNK_RE = re.compile(r"/assets/[A-Za-z0-9_.\-]+\.js")
+KEYWORDS = [
+    "fetch(",
+    "XMLHttpRequest",
+    "WebSocket",
+    "better-admin",
+    "bookings.better",
+    "islington",
+    "highbury",
+    "clissold",
+    "supabase",
+    "firebaseio",
+    "firestore",
+    ".workers.dev",
+    "vercel.app",
+    "railway.app",
+    "onrender.com",
+    "fly.dev",
+    "herokuapp",
+    "/functions/",
+    "graphql",
+    "axios",
+    "baseURL",
+    "VITE_",
+    "import.meta.env",
+]
+
+
+def dump_bundle(url: str, seen_chunks: set) -> str:
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=20)
+    except Exception as e:
+        print(f"\n=== {url} -> ERROR {e} ===")
+        return ""
+
+    print(f"\n=== {url} ===")
+    print("status:", r.status_code, "len:", len(r.content))
+    if not r.ok:
+        return ""
+
+    text = r.text
+
+    for kw in KEYWORDS:
+        idx = 0
+        count = 0
+        while True:
+            pos = text.find(kw, idx)
+            if pos == -1 or count >= 5:
+                break
+            start = max(0, pos - 80)
+            end = min(len(text), pos + 120)
+            print(f"\n[{kw}] ...{text[start:end]}...")
+            idx = pos + len(kw)
+            count += 1
+
+    for chunk in CHUNK_RE.findall(text):
+        seen_chunks.add(chunk)
+
+    return text
 
 
 def main() -> int:
-    for path in BUNDLES:
-        url = BASE + path
-        try:
-            r = requests.get(url, headers=HEADERS, timeout=20)
-        except Exception as e:
-            print(f"\n=== {url} -> ERROR {e} ===")
+    seen_chunks: set = set(SEED_BUNDLES)
+    processed: set = set()
+
+    queue = list(SEED_BUNDLES)
+    while queue:
+        path = queue.pop(0)
+        if path in processed:
             continue
+        processed.add(path)
+        dump_bundle(BASE + path, seen_chunks)
+        for c in seen_chunks:
+            if c not in processed and c not in queue:
+                queue.append(c)
 
-        print(f"\n=== {url} ===")
-        print("status:", r.status_code, "len:", len(r.content))
-        if not r.ok:
-            continue
-
-        text = r.text
-
-        urls = sorted(set(URL_RE.findall(text)))
-        interesting = [
-            u
-            for u in urls
-            if not any(
-                skip in u
-                for skip in (
-                    "w3.org",
-                    "googletagmanager",
-                    "google-analytics",
-                    "buymeacoffee",
-                    "cloudflare",
-                    "fonts.googleapis",
-                    "fonts.gstatic",
-                    "schema.org",
-                )
-            )
-        ]
-        print(f"\n--- {len(interesting)} interesting absolute URL(s) (of {len(urls)} total) ---")
-        for u in interesting[:200]:
-            print(u)
-
-        rel_apis = sorted(set(REL_API_RE.findall(text)))
-        print(f"\n--- {len(rel_apis)} relative api/court/venue/slot/avail path(s) ---")
-        for p in rel_apis[:200]:
-            print(p)
-
-        fetch_calls = FETCH_RE.findall(text)
-        print(f"\n--- {len(fetch_calls)} fetch/axios call site(s) ---")
-        for kind, target in fetch_calls[:200]:
-            print(f"{kind} -> {target}")
-
-        for marker in ("supabase", "firebaseio", "firestore", "vercel.app", "workers.dev", "amazonaws", "pocketbase"):
-            if marker in text:
-                print(f"\nFound backend marker: {marker}")
+    print(f"\n--- discovered {len(seen_chunks)} total chunk path(s) ---")
+    for c in sorted(seen_chunks):
+        print(c)
 
     return 0
 

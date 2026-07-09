@@ -54,6 +54,39 @@ def main() -> int:
     for day in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]:
         print(day, day in text)
 
+    # The page is a client-rendered SPA (no __NEXT_DATA__/__NUXT__, day names
+    # absent from server HTML) — the real data must be fetched by the JS
+    # bundles at runtime. Pull those bundles and grep them for API endpoints.
+    bundle_paths = sorted(set(re.findall(r'(/assets/[^"\']+\.js)', text)))
+    print("\n--- JS bundle paths found in HTML ---")
+    for p in bundle_paths:
+        print(p)
+
+    for bp in bundle_paths:
+        bundle_url = "https://localtenniscourts.com" + bp
+        print(f"\n=== fetching bundle {bundle_url} ===")
+        try:
+            br = requests.get(bundle_url, headers=HEADERS, timeout=20)
+            print(f"status={br.status_code} len={len(br.text)}")
+            btext = br.text
+
+            print(f"--- {bp}: absolute https:// URLs (deduped, first 40) ---")
+            found_urls = sorted(set(re.findall(r'https?://[a-zA-Z0-9_./-]+', btext)))
+            for u in found_urls[:40]:
+                print(u)
+
+            print(f"--- {bp}: relative /api-ish path literals ---")
+            for m in sorted(set(re.findall(r'["\'](/[a-zA-Z0-9_/-]*(?:api|rpc|graphql)[a-zA-Z0-9_/-]*)["\']', btext, re.I))):
+                print(m)
+
+            print(f"--- {bp}: supabase/firebase/airtable/wix hints ---")
+            for kw in ["supabase", "firebase", "airtable", "wix", ".workers.dev", "vercel", "amazonaws", "googleapis"]:
+                if kw in btext.lower():
+                    idx = btext.lower().find(kw)
+                    print(f"{kw}: ...{btext[max(0, idx-80):idx+120]}...")
+        except Exception as e:
+            print(f"ERR fetching {bundle_url}: {e}")
+
     return 0
 
 

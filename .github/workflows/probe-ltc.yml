@@ -12,34 +12,20 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch page and inspect for API hints
-        run: |
-          set -x
-          URL="https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor"
-          echo "=== HEADERS ==="
-          curl -sSI -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" "$URL" || true
-          echo "=== BODY (first 400 lines) ==="
-          curl -sS -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" "$URL" -o page.html || true
-          wc -l page.html || true
-          head -n 400 page.html || true
-          echo "=== SCRIPT SRC TAGS ==="
-          grep -oE '<script[^>]*src="[^"]*"' page.html || true
-          echo "=== INLINE fetch/axios/api STRINGS ==="
-          grep -oE '(https?:)?//[a-zA-Z0-9.\-]+/[a-zA-Z0-9._/\-]*api[a-zA-Z0-9._/\-]*' page.html | sort -u || true
-          grep -oE '"/api[a-zA-Z0-9._/\-]*"' page.html | sort -u || true
-          echo "=== window.__NEXT_DATA__ / __NUXT__ / json-ld hints ==="
-          grep -oE '(__NEXT_DATA__|__NUXT__|application/json)' page.html | sort -u || true
-      - name: Try a few likely API/data endpoints directly
+      - name: Fetch JS bundles referenced by the SPA and grep for API hints
         run: |
           set -x
           UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-          for path in \
-            "/api/availability?q=highbury-fields,islington-tennis-centre-outdoor" \
-            "/api/courts" \
-            "/api/venues" \
-            "/_next/data/build/index.json" \
-            "/wp-json/" ; do
-            echo "--- $path ---"
-            curl -sS -A "$UA" -w "\nHTTP:%{http_code} type:%{content_type}\n" "https://localtenniscourts.com${path}" | head -c 2000
-            echo
+          for asset in "/assets/main-DLXMVjOc.js" "/assets/index-Bf7utVcV.js"; do
+            echo "=== $asset ==="
+            curl -sS -A "$UA" "https://localtenniscourts.com${asset}" -o /tmp/bundle.js || true
+            wc -c /tmp/bundle.js || true
+            echo "--- fetch(/axios/api-looking substrings ---"
+            grep -oE '(https?://[a-zA-Z0-9.\-]+)?/[a-zA-Z0-9._\-]*api[a-zA-Z0-9._/\-]*' /tmp/bundle.js | sort -u | head -50 || true
+            echo "--- supabase/vercel/base-url-looking substrings ---"
+            grep -oE '(https?://[a-zA-Z0-9.\-]*\.(supabase\.co|vercel\.app|onrender\.com|railway\.app|fly\.dev|herokuapp\.com|workers\.dev|convex\.cloud))[a-zA-Z0-9._/\-]*' /tmp/bundle.js | sort -u | head -50 || true
+            echo "--- generic https:// hostnames referenced ---"
+            grep -oE 'https?://[a-zA-Z0-9.\-]+' /tmp/bundle.js | sort -u | head -80 || true
+            echo "--- fetch( and axios( call sites (100 chars context) ---"
+            grep -oE '.{0,60}(fetch\(|axios\.(get|post)\().{0,80}' /tmp/bundle.js | head -30 || true
           done

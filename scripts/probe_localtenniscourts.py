@@ -70,6 +70,16 @@ def main() -> int:
         print("\n--- page title ---")
         print(page.title())
 
+        print("\n--- rendered body innerText (first 4000 chars) ---")
+        try:
+            print(page.inner_text("body")[:4000])
+        except Exception as e:
+            print(f"(failed: {e})")
+
+        print("\n--- waiting another 8s in case of delayed/debounced fetch ---")
+        page.wait_for_timeout(8000)
+        print(f"total network events now: {len(requests_log)}")
+
         print(f"\n--- {len(requests_log)} network events captured ---")
         xhr_fetch = [
             e for e in requests_log if e["type"] == "request" and e["resource_type"] in ("xhr", "fetch")

@@ -19,6 +19,7 @@ def tabularise(raw_records: list[dict]) -> pl.DataFrame:
     empty = pl.DataFrame(
         schema={
             "Time": pl.Utf8,
+            "Time24": pl.Utf8,
             "Date": pl.Date,
             "Spaces": pl.Int64,
             "Venue": pl.Utf8,
@@ -54,6 +55,7 @@ def tabularise(raw_records: list[dict]) -> pl.DataFrame:
 
     result = df.select(
         pl.col("time_12h").alias("Time"),
+        pl.col("time_24h").alias("Time24"),
         pl.col("date").str.strptime(pl.Date, "%Y-%m-%d", strict=False).alias("Date"),
         pl.col("spaces").cast(pl.Int64).alias("Spaces"),
         pl.col("location").alias("Venue"),
@@ -116,3 +118,38 @@ def diff_tables(curr: pl.DataFrame, prev: pl.DataFrame) -> list[str]:
             changed_keys.append(k)
 
     return changed_keys
+
+
+WEDNESDAY = 2  # datetime.date.weekday(): Monday=0 ... Sunday=6
+EVENING_CUTOFF = "19:00"  # zero-padded 24h, so string comparison is safe
+
+
+def wednesday_evening_openings(curr: pl.DataFrame, prev: pl.DataFrame) -> list[str]:
+    """
+    Keys of rows that just flipped from booked to free for a Wednesday slot
+    starting at or after 19:00.
+
+    "Booked" means zero (or previously unseen) spaces; "free" means spaces > 0.
+    """
+    if curr.is_empty():
+        return []
+
+    prev_map = {key_of(row): row for row in prev.to_dicts()} if not prev.is_empty() else {}
+
+    opened: list[str] = []
+    for row in curr.to_dicts():
+        date = row.get("Date")
+        time24 = row.get("Time24")
+        if date is None or time24 is None or date.weekday() != WEDNESDAY or time24 < EVENING_CUTOFF:
+            continue
+
+        spaces = row.get("Spaces") or 0
+        if spaces <= 0:
+            continue
+
+        prev_row = prev_map.get(key_of(row))
+        prev_spaces = (prev_row.get("Spaces") if prev_row else None) or 0
+        if prev_spaces <= 0:
+            opened.append(key_of(row))
+
+    return opened

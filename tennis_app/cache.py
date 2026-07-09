@@ -7,6 +7,7 @@ import polars as pl
 
 EXPECTED_SCHEMA = {
     "Time": pl.Utf8,
+    "Time24": pl.Utf8,
     "Date": pl.Date,
     "Spaces": pl.Int64,
     "Venue": pl.Utf8,

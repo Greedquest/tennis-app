@@ -1,0 +1,41 @@
+name: ProbeThrowaway
+
+on:
+  push:
+    branches:
+      - claude/great-wright-1w4ev1
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6.1.0
+        with:
+          python-version: '3.12'
+
+      - name: Install deps
+        run: pip install requests
+
+      - name: Probe Highbury Fields candidate slugs (Better Admin API)
+        run: |
+          python scripts/probe_venue.py \
+            islington-tennis-centre:tennis-court-outdoor \
+            islington-parks:tennis-court-outdoor \
+            islington-parks:highbury-fields-activities \
+            --days 3 --delay 1.5
+
+      - name: Probe localtenniscourts.com (reachability + API shape)
+        run: |
+          echo "--- HTTP status ---"
+          curl -s -o /tmp/ltc.html -w "%{http_code}\n" "https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor" || true
+          echo "--- first 200 lines of body ---"
+          head -n 200 /tmp/ltc.html || true
+          echo "--- look for JSON/API hints in the HTML ---"
+          grep -Eio '(api|json|fetch|xhr|/wp-json|graphql)[^"'"'"' >]*' /tmp/ltc.html | sort -u | head -n 50 || true

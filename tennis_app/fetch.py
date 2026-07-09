@@ -39,7 +39,12 @@ def fetch_activities(venue: str, court: str, date: str) -> list[dict[str, Any]]:
     r.raise_for_status()
     response_data = r.json()
 
-    return response_data.get("data", [])
+    data = response_data.get("data", [])
+    # The API returns today's slots as a dict keyed by slot index (e.g. {"7": {...}, "8": {...}})
+    # and future dates as a plain list.  Normalise to a list in both cases.
+    if isinstance(data, dict):
+        return list(data.values())
+    return data
 
 
 def fetch_all_activities(

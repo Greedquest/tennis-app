@@ -125,6 +125,44 @@ def main() -> int:
         except Exception:
             pass
 
+    print("\n--- broader keyword sweep of bundle text (all occurrences, 250-char context) ---")
+    keywords = [
+        "fetch(",
+        "better-admin",
+        "bookings.better",
+        "islington",
+        "highbury",
+        "clissold",
+        "/api/",
+        "import.meta.env",
+        "VITE_",
+        ".workers.dev",
+        "vercel.app",
+        "amazonaws",
+        "supabase",
+        "baseURL",
+        "BASE_URL",
+        "endpoint",
+    ]
+    for src in all_js:
+        url = absolutize(src)
+        try:
+            jr = fetch(url)
+            t = jr.text
+            for kw in keywords:
+                start = 0
+                count = 0
+                while count < 5:
+                    idx = t.find(kw, start)
+                    if idx == -1:
+                        break
+                    snippet = t[max(0, idx - 100) : idx + 150].replace("\n", "\\n")
+                    print(f"{url} :: {kw!r} @ {idx}\n  ...{snippet}...")
+                    start = idx + len(kw)
+                    count += 1
+        except Exception:
+            pass
+
     print("\n--- first 3000 chars of raw HTML (fallback context) ---")
     print(text[:3000])
 

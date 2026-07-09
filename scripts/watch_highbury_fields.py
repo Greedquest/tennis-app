@@ -40,9 +40,10 @@ import argparse
 import json
 import logging
 import shutil
-import subprocess
+import subprocess  # nosec B404 - used only with fixed argv lists below, never shell=True
 import sys
-from datetime import datetime, time as dtime
+from datetime import datetime
+from datetime import time as dtime
 from pathlib import Path
 
 import requests
@@ -96,13 +97,17 @@ def fetch_today_slots() -> dict[str, int | None]:
 
 
 def send_notification(title: str, message: str) -> None:
-    if shutil.which("termux-notification"):
-        subprocess.run(["termux-notification", "--title", title, "--content", message], check=False)
-    elif shutil.which("notify-send"):
-        subprocess.run(["notify-send", title, message], check=False)
-    elif shutil.which("osascript"):
-        script = f'display notification "{message}" with title "{title}"'
-        subprocess.run(["osascript", "-e", script], check=False)
+    if termux_notification := shutil.which("termux-notification"):
+        subprocess.run(  # nosec B603 - full resolved path, fixed argv list, no shell
+            [termux_notification, "--title", title, "--content", message], check=False
+        )
+    elif notify_send := shutil.which("notify-send"):
+        subprocess.run([notify_send, title, message], check=False)  # nosec B603
+    elif osascript := shutil.which("osascript"):
+        escaped_message = message.replace("\\", "\\\\").replace('"', '\\"')
+        escaped_title = title.replace("\\", "\\\\").replace('"', '\\"')
+        script = f'display notification "{escaped_message}" with title "{escaped_title}"'
+        subprocess.run([osascript, "-e", script], check=False)  # nosec B603
     else:
         log.warning("No desktop notifier found (tried termux-notification/notify-send/osascript).")
 
@@ -126,10 +131,18 @@ def in_watch_window(now: datetime) -> bool:
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument("--cache-path", type=Path, default=DEFAULT_CACHE_PATH)
-    p.add_argument("--force", action="store_true", help="run even outside the Wed 12:00-22:00 window")
-    p.add_argument("--no-notify", action="store_true", help="log alerts instead of firing a desktop notification")
+    p.add_argument(
+        "--force", action="store_true", help="run even outside the Wed 12:00-22:00 window"
+    )
+    p.add_argument(
+        "--no-notify",
+        action="store_true",
+        help="log alerts instead of firing a desktop notification",
+    )
     args = p.parse_args(argv)
 
     now = datetime.now()

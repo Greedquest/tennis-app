@@ -9,10 +9,14 @@ import sys
 
 from playwright.sync_api import sync_playwright
 
-URL = "https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor"
+URLS = [
+    "https://localtenniscourts.com/",
+    "https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor",
+]
 
 
-def main() -> int:
+def probe_one(url: str) -> None:
+    print(f"\n\n########## {url} ##########")
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page()
@@ -37,30 +41,54 @@ def main() -> int:
         page.on("request", on_request)
         page.on("response", on_response)
 
-        print(f"Navigating to {URL}")
-        page.goto(URL, wait_until="networkidle", timeout=30000)
+        print(f"Navigating to {url}")
+        page.goto(url, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(3000)
 
         print("\n--- all requests (method, url, resource_type) ---")
-        for method, url, rtype in requests_seen:
-            print(f"{method:5} {rtype:8} {url}")
+        for method, req_url, rtype in requests_seen:
+            print(f"{method:5} {rtype:8} {req_url}")
 
         print("\n--- JSON / xhr / fetch responses (status, url, content-type) ---")
-        for status, url, ct, body in responses_seen:
-            print(f"\n=== {status} {ct} {url} ===")
+        for status, resp_url, ct, body in responses_seen:
+            print(f"\n=== {status} {ct} {resp_url} ===")
             print(body)
 
         print("\n--- page title ---")
         print(page.title())
 
-        print("\n--- visible text sample (first 2000 chars of body innerText) ---")
+        print("\n--- visible text sample (first 2500 chars of body innerText) ---")
         try:
             text = page.inner_text("body")
-            print(text[:2000])
+            print(text[:2500])
+        except Exception as e:
+            print(f"<error: {e}>")
+
+        print("\n--- checkbox/label elements with value-ish attributes (venue filters) ---")
+        try:
+            els = page.eval_on_selector_all(
+                "input, [role=checkbox], [data-value], [data-slug], label",
+                """els => els.slice(0, 60).map(e => ({
+                    tag: e.tagName,
+                    type: e.getAttribute('type'),
+                    value: e.getAttribute('value'),
+                    dataValue: e.getAttribute('data-value'),
+                    dataSlug: e.getAttribute('data-slug'),
+                    name: e.getAttribute('name'),
+                    text: (e.innerText || '').slice(0, 60),
+                }))""",
+            )
+            for e in els:
+                print(e)
         except Exception as e:
             print(f"<error: {e}>")
 
         browser.close()
+
+
+def main() -> int:
+    for url in URLS:
+        probe_one(url)
     return 0
 
 

@@ -1,0 +1,44 @@
+name: Probe localtenniscourts.com
+
+on:
+  push:
+    branches:
+      - claude/great-wright-b6ehj3
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch page + inspect for API hints
+        run: |
+          set -x
+          URL='https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor'
+          echo "=== HEADERS ==="
+          curl -sS -D - -o /tmp/page.html \
+            -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+            "$URL" | head -50
+          echo "=== BODY SIZE ==="
+          wc -c /tmp/page.html
+          echo "=== SCRIPT SRC TAGS ==="
+          grep -oE '<script[^>]*src="[^"]*"' /tmp/page.html | sort -u || true
+          echo "=== INLINE JSON-LIKE BLOBS (first 300 chars each) ==="
+          grep -oE '__NEXT_DATA__|__NUXT__|window\.__[A-Z_]+__|application/json' /tmp/page.html | sort -u || true
+          echo "=== fetch/XHR/api STRING HITS ==="
+          grep -oE '"[^"]*api[^"]*"' /tmp/page.html | sort -u | head -50 || true
+          echo "=== FIRST 4000 CHARS OF BODY ==="
+          head -c 4000 /tmp/page.html
+          echo
+          echo "=== LAST 4000 CHARS OF BODY ==="
+          tail -c 4000 /tmp/page.html
+      - name: Try common API-ish paths
+        run: |
+          set -x
+          BASE='https://localtenniscourts.com'
+          for p in "/api/courts" "/api/slots" "/api/availability" "/_next/data" "/wp-json"; do
+            echo "--- $p ---"
+            curl -sS -o /dev/null -w "%{http_code}\n" "$BASE$p" || true
+            sleep 1
+          done

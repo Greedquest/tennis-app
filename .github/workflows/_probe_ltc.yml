@@ -1,0 +1,42 @@
+name: Probe LTC (throwaway)
+
+on:
+  push:
+    branches:
+      - claude/great-wright-ldtafr
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch main page
+        run: |
+          set -x
+          URL='https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor'
+          curl -sS -D /tmp/headers.txt -o /tmp/page.html "$URL" \
+            -H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' \
+            -H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+          echo "--- HEADERS ---"
+          cat /tmp/headers.txt
+          echo "--- SIZE ---"
+          wc -c /tmp/page.html
+          echo "--- SCRIPT SRC TAGS ---"
+          grep -oE '<script[^>]*src="[^"]*"' /tmp/page.html || true
+          echo "--- INLINE fetch/axios/api hints ---"
+          grep -oE '(fetch\(|axios\.|/api/[a-zA-Z0-9_./-]*|\.json[^a-zA-Z]|graphql)' /tmp/page.html | sort -u || true
+          echo "--- ROBOTS ---"
+          curl -sS https://localtenniscourts.com/robots.txt || true
+          echo "--- FIRST 200 LINES OF HTML ---"
+          head -c 20000 /tmp/page.html
+
+      - name: Try common API guesses
+        run: |
+          set -x
+          for path in "/api/availability" "/api/courts" "/api/slots" "/wp-json/" "/_next/data" ; do
+            echo "=== $path ==="
+            curl -sS -o /dev/null -w 'HTTP %{http_code}\n' "https://localtenniscourts.com${path}" || true
+            sleep 1
+          done

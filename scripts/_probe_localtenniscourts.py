@@ -84,8 +84,42 @@ def main() -> int:
                 if kw in btext.lower():
                     idx = btext.lower().find(kw)
                     print(f"{kw}: ...{btext[max(0, idx-80):idx+120]}...")
+
+            print(f"--- {bp}: fetch(/axios(/XMLHttpRequest calls with context ---")
+            for m in re.finditer(r"(fetch|axios\.\w+|\.get\(|\.post\()\s*\(", btext):
+                start = max(0, m.start() - 20)
+                print("..." + btext[start : m.start() + 160].replace("\n", " ") + "...")
+
+            print(f"--- {bp}: short path-like string literals (dedup, up to 80) ---")
+            paths = sorted(set(re.findall(r'["\']((?:/[a-zA-Z0-9_.-]+){1,4})["\']', btext)))
+            paths = [p for p in paths if not p.startswith("/assets/") and len(p) < 40]
+            for p in paths[:80]:
+                print(p)
         except Exception as e:
             print(f"ERR fetching {bundle_url}: {e}")
+
+    print("\n--- direct probes of common data-endpoint guesses on the same origin ---")
+    guesses = [
+        "/api/courts",
+        "/api/availability",
+        "/api/venues",
+        "/api/slots",
+        "/api/data",
+        "/courts.json",
+        "/data.json",
+        "/data/courts.json",
+        "/availability.json",
+        "/export.json",
+        "/slots.json",
+        "/robots.txt",
+        "/sitemap.xml",
+    ]
+    for g in guesses:
+        try:
+            gr = requests.get("https://localtenniscourts.com" + g, headers=HEADERS, timeout=15)
+            print(f"{gr.status_code:4} len={len(gr.content):7}  {g}  content-type={gr.headers.get('content-type')}")
+        except Exception as e:
+            print(f" ERR  {g}  {e}")
 
     return 0
 

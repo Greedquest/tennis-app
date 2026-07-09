@@ -15,6 +15,30 @@ pip install marimo anywidget polars requests
 marimo run dashboard.py
 ```
 
+## Local Wednesday-Evening Court Watch
+
+`scripts/watch_highbury_fields.py` is a standalone local script (not part of
+the Gmail poller above) that watches for Highbury Fields / Islington Tennis
+Centre (Outdoor) evening slots on [localtenniscourts.com](https://localtenniscourts.com)
+and fires a desktop notification the moment a slot at or after 19:00 flips
+from booked to free. Alert only — it never books anything.
+
+It's meant to run outside Claude Code (routines are hourly at best; this
+needs 5-minute granularity), via cron or a phone automation tool like
+Tasker/Termux:
+
+```sh
+pip install -r requirements.txt
+# every 5 min, Wednesdays only, noon-22:00 (the script also self-checks the window)
+*/5 12-21 * * 3 /usr/bin/python3 /path/to/watch_highbury_fields.py
+```
+
+Test it immediately without waiting for Wednesday:
+
+```sh
+python scripts/watch_highbury_fields.py --force --no-notify
+```
+
 ## GitHub Copilot Configuration
 
 This repository includes configuration for GitHub Copilot Cloud Agent to access external domains:

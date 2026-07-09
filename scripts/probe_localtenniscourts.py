@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Probe https://localtenniscourts.com to find out how it serves availability data.
+"""Probe https://localtenniscourts.com's real network traffic with a headless browser.
 
 Throwaway diagnostic: the sandbox that authors this repo's code can't reach
 localtenniscourts.com directly (proxy 403s it), so this script is meant to be
@@ -7,164 +7,103 @@ run somewhere with real network egress (a GitHub Actions job) so its output
 can be read back as logs. Not wired into the app — delete once the site's
 data shape is understood.
 
-The site is a Vite SPA (no server-rendered data blob), so the real logic
-lives in its JS bundles referenced via <link rel="modulepreload">. This
-probe fetches the page, follows every <script src> AND modulepreload/
-stylesheet link under /assets/, and grep for anything that looks like a
-backend call: absolute API hosts, fetch()/axios calls, graphql, .json.
+Static regex over the minified Vite bundles turned up nothing (no fetch/api/
+venue-name literals), so instead of guessing from source, load the page in a
+real browser and record every request/response it actually makes — this is
+the only reliable way to find the data endpoint for a heavily minified SPA.
 """
 
-import json
-import re
 import sys
 
-import requests
+from playwright.sync_api import sync_playwright
 
 PAGE_URL = "https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor"
 
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    ),
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-}
-
-API_PATTERN = re.compile(
-    r"""["'](https?://[a-zA-Z0-9_.\-]+\.[a-zA-Z]{2,}(?:/[a-zA-Z0-9_\-./?=&%]*)?|/[a-zA-Z0-9_\-./]*(?:api|graphql|\.json)[a-zA-Z0-9_\-./?=&%]*)["']"""
+# Requests to these are noise (analytics/ads/fonts/etc) - print but don't dump bodies.
+NOISE_HOSTS = (
+    "googletagmanager.com",
+    "google-analytics.com",
+    "doubleclick.net",
+    "googlesyndication.com",
+    "googleadservices.com",
+    "google.com",
+    "facebook.com",
+    "buymeacoffee.com",
+    "cloudflareinsights.com",
+    "youtube.com",
+    "cloudflare.com",
+    "merchant-center-analytics.goog",
 )
-NEXT_DATA_PATTERN = re.compile(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', re.DOTALL)
 
 
-def fetch(url: str) -> requests.Response:
-    return requests.get(url, headers=HEADERS, timeout=20)
-
-
-def absolutize(src: str) -> str:
-    if src.startswith("http"):
-        return src
-    return f"https://localtenniscourts.com{src}"
+def is_noise(url: str) -> bool:
+    return any(h in url for h in NOISE_HOSTS)
 
 
 def main() -> int:
-    print(f"GET {PAGE_URL}")
-    r = fetch(PAGE_URL)
-    print(f"status={r.status_code} bytes={len(r.content)}")
-    text = r.text
+    requests_log = []
 
-    m = NEXT_DATA_PATTERN.search(text)
-    if m:
-        print("\n--- __NEXT_DATA__ found ---")
-        try:
-            data = json.loads(m.group(1))
-            print(json.dumps(data, indent=2)[:8000])
-        except Exception as e:
-            print(f"(failed to parse: {e})")
-            print(m.group(1)[:4000])
-    else:
-        print("\n--- no __NEXT_DATA__ blob found ---")
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        context = browser.new_context(
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            )
+        )
+        page = context.new_page()
 
-    # Collect every JS asset the page references: <script src>, modulepreload
-    # links, and stylesheet links (skip css, keep js).
-    script_srcs = set(re.findall(r'<script[^>]+src="([^"]+)"', text))
-    preload_srcs = set(re.findall(r'<link rel="modulepreload" href="([^"]+)"', text))
-    all_js = sorted(script_srcs | preload_srcs)
+        def on_request(req):
+            requests_log.append({"type": "request", "method": req.method, "url": req.url, "resource_type": req.resource_type})
 
-    print(f"\n--- {len(all_js)} JS asset reference(s) ---")
-    for src in all_js:
-        print(src)
+        def on_response(res):
+            requests_log.append({"type": "response", "status": res.status, "url": res.url})
 
-    print("\n--- fetching JS bundles for API path hints ---")
-    all_hits: dict[str, list[str]] = {}
-    for src in all_js:
-        url = absolutize(src)
-        try:
-            jr = fetch(url)
-            found = sorted(set(API_PATTERN.findall(jr.text)))
-            # third-party noise we don't care about
-            found = [
-                f
-                for f in found
-                if not any(
-                    noise in f
-                    for noise in (
-                        "googletagmanager",
-                        "google-analytics",
-                        "cloudflare",
-                        "buymeacoffee",
-                        "w3.org",
-                        "schema.org",
-                    )
-                )
-            ]
-            all_hits[url] = found
-            print(f"{url}: status={jr.status_code} bytes={len(jr.content)} hits={len(found)}")
-        except Exception as e:
-            print(f"{url}: ERROR {e}")
+        page.on("request", on_request)
+        page.on("response", on_response)
 
-    print("\n--- filtered candidate backend URLs/paths, by bundle ---")
-    for url, hits in all_hits.items():
-        if hits:
-            print(f"\n{url}:")
-            for h in hits:
-                print(f"  {h}")
+        print(f"Navigating to {PAGE_URL}")
+        page.goto(PAGE_URL, wait_until="networkidle", timeout=30000)
+        # Give any lazy XHRs (e.g. triggered after render) a moment to fire.
+        page.wait_for_timeout(4000)
 
-    # Also grep raw bundle text for common client patterns even if the
-    # regex above missed it (relative fetch("/something") calls, etc).
-    print("\n--- raw grep for fetch(/axios/supabase/graphql mentions ---")
-    for src in all_js:
-        url = absolutize(src)
-        try:
-            jr = fetch(url)
-            for pattern in ("supabase", "graphql", ".rpc(", "fetch(`", "fetch('", 'fetch("', "axios."):
-                idx = jr.text.find(pattern)
-                if idx != -1:
-                    snippet = jr.text[max(0, idx - 80) : idx + 200]
-                    print(f"{url} :: pattern={pattern!r}\n  ...{snippet}...")
-        except Exception:
-            pass
+        print("\n--- page title ---")
+        print(page.title())
 
-    print("\n--- broader keyword sweep of bundle text (all occurrences, 250-char context) ---")
-    keywords = [
-        "fetch(",
-        "better-admin",
-        "bookings.better",
-        "islington",
-        "highbury",
-        "clissold",
-        "/api/",
-        "import.meta.env",
-        "VITE_",
-        ".workers.dev",
-        "vercel.app",
-        "amazonaws",
-        "supabase",
-        "baseURL",
-        "BASE_URL",
-        "endpoint",
-    ]
-    for src in all_js:
-        url = absolutize(src)
-        try:
-            jr = fetch(url)
-            t = jr.text
-            for kw in keywords:
-                start = 0
-                count = 0
-                while count < 5:
-                    idx = t.find(kw, start)
-                    if idx == -1:
-                        break
-                    snippet = t[max(0, idx - 100) : idx + 150].replace("\n", "\\n")
-                    print(f"{url} :: {kw!r} @ {idx}\n  ...{snippet}...")
-                    start = idx + len(kw)
-                    count += 1
-        except Exception:
-            pass
+        print(f"\n--- {len(requests_log)} network events captured ---")
+        xhr_fetch = [
+            e for e in requests_log if e["type"] == "request" and e["resource_type"] in ("xhr", "fetch")
+        ]
+        print(f"\n--- {len(xhr_fetch)} XHR/fetch request(s) ---")
+        for e in xhr_fetch:
+            print(f"{e['method']:6} {e['url']}")
 
-    print("\n--- first 3000 chars of raw HTML (fallback context) ---")
-    print(text[:3000])
+        print("\n--- ALL non-noise requests (any resource type) ---")
+        for e in requests_log:
+            if e["type"] != "request":
+                continue
+            if is_noise(e["url"]):
+                continue
+            print(f"{e['resource_type']:10} {e['method']:6} {e['url']}")
+
+        # For the interesting XHR/fetch calls, try to capture and print the
+        # response body (likely JSON with court availability).
+        print("\n--- attempting to fetch response bodies for XHR/fetch URLs ---")
+        seen = set()
+        for e in xhr_fetch:
+            if e["url"] in seen:
+                continue
+            seen.add(e["url"])
+            try:
+                resp = context.request.get(e["url"])
+                body = resp.text()
+                print(f"\nURL: {e['url']}")
+                print(f"status={resp.status} bytes={len(body)}")
+                print(body[:3000])
+            except Exception as ex:
+                print(f"URL: {e['url']} -> ERROR {ex}")
+
+        browser.close()
 
     return 0
 

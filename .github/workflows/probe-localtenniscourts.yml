@@ -21,7 +21,9 @@ jobs:
           python-version: '3.12'
 
       - name: Install deps
-        run: pip install requests
+        run: |
+          pip install playwright
+          playwright install --with-deps chromium
 
       - name: Probe site
         run: python scripts/probe_localtenniscourts.py

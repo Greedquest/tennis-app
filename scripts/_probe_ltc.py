@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Throwaway probe: inspect localtenniscourts.com's JS bundles for the real API.
+"""Throwaway probe: check if localtenniscourts.com renders court data server-side.
 
 Not meant to be kept in the repo -- run once on a GitHub Actions runner (real
 egress), read the logs, then delete this file + its workflow.
@@ -19,90 +19,56 @@ HEADERS = {
     ),
 }
 
-SEED_BUNDLES = [
-    "/assets/main-DLXMVjOc.js",
-    "/assets/index-Bf7utVcV.js",
+URLS = [
+    f"{BASE}/?q=highbury-fields%2Cislington-tennis-centre-outdoor",
+    f"{BASE}/",
 ]
 
-CHUNK_RE = re.compile(r"/assets/[A-Za-z0-9_.\-]+\.js")
 KEYWORDS = [
-    "fetch(",
-    "XMLHttpRequest",
-    "WebSocket",
-    "better-admin",
-    "bookings.better",
-    "islington",
-    "highbury",
-    "clissold",
-    "supabase",
-    "firebaseio",
-    "firestore",
-    ".workers.dev",
-    "vercel.app",
-    "railway.app",
-    "onrender.com",
-    "fly.dev",
-    "herokuapp",
-    "/functions/",
-    "graphql",
-    "axios",
-    "baseURL",
-    "VITE_",
-    "import.meta.env",
+    "Highbury",
+    "Islington",
+    "Clissold",
+    "Regent",
+    "Finsbury",
+    "Hackney",
+    "court",
+    "Court",
+    "available",
+    "Available",
+    "booked",
+    "Booked",
+    ":00",
+    ":30",
+    "spaces",
+    "Spaces",
+    "<table",
+    "<tr",
+    "<td",
+    "wednesday",
+    "Wednesday",
 ]
-
-
-def dump_bundle(url: str, seen_chunks: set) -> str:
-    try:
-        r = requests.get(url, headers=HEADERS, timeout=20)
-    except Exception as e:
-        print(f"\n=== {url} -> ERROR {e} ===")
-        return ""
-
-    print(f"\n=== {url} ===")
-    print("status:", r.status_code, "len:", len(r.content))
-    if not r.ok:
-        return ""
-
-    text = r.text
-
-    for kw in KEYWORDS:
-        idx = 0
-        count = 0
-        while True:
-            pos = text.find(kw, idx)
-            if pos == -1 or count >= 5:
-                break
-            start = max(0, pos - 80)
-            end = min(len(text), pos + 120)
-            print(f"\n[{kw}] ...{text[start:end]}...")
-            idx = pos + len(kw)
-            count += 1
-
-    for chunk in CHUNK_RE.findall(text):
-        seen_chunks.add(chunk)
-
-    return text
 
 
 def main() -> int:
-    seen_chunks: set = set(SEED_BUNDLES)
-    processed: set = set()
+    for url in URLS:
+        r = requests.get(url, headers=HEADERS, timeout=20)
+        print(f"\n=== {url} ===")
+        print("status:", r.status_code, "len:", len(r.content))
+        body = r.text
 
-    queue = list(SEED_BUNDLES)
-    while queue:
-        path = queue.pop(0)
-        if path in processed:
-            continue
-        processed.add(path)
-        dump_bundle(BASE + path, seen_chunks)
-        for c in seen_chunks:
-            if c not in processed and c not in queue:
-                queue.append(c)
+        for kw in KEYWORDS:
+            n = body.count(kw)
+            print(f"  count({kw!r}) = {n}")
 
-    print(f"\n--- discovered {len(seen_chunks)} total chunk path(s) ---")
-    for c in sorted(seen_chunks):
-        print(c)
+        # Print a chunk from the middle and end of the body -- the head/meta
+        # tags dominate the first ~3000 chars, so look further in.
+        mid = len(body) // 2
+        print("\n--- body[3000:6000] ---")
+        print(body[3000:6000])
+        print(f"\n--- body[{mid}:{mid + 3000}] ---")
+        print(body[mid : mid + 3000])
+        print("\n--- last 2000 chars ---")
+        print(body[-2000:])
 
     return 0
 

@@ -1,0 +1,23 @@
+name: _ProbeLocalTennisCourts
+
+on:
+  push:
+    branches:
+      - claude/great-wright-qmb6rv
+    paths:
+      - ".github/workflows/_probe-localtenniscourts.yml"
+      - "scripts/_probe_localtenniscourts.py"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6.1.0
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - run: python scripts/_probe_localtenniscourts.py

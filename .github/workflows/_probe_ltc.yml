@@ -40,3 +40,50 @@ jobs:
             curl -sS -o /dev/null -w 'HTTP %{http_code}\n' "https://localtenniscourts.com${path}" || true
             sleep 1
           done
+
+      - name: Look for green/available cells and date-nav controls
+        run: |
+          set -x
+          echo "--- CELL COLOR CLASSES (unique bg- classes near table cells) ---"
+          grep -oE 'bg-(green|emerald|red|amber|yellow|slate)-[0-9]+/?[0-9]*' /tmp/page.html | sort -u || true
+          echo "--- Any <a href with booking-like link near table ---"
+          grep -oE '<a[^>]*href="[^"]*"[^>]*>' /tmp/page.html | grep -iE 'book|slot|court' | head -30 || true
+          echo "--- text around 'Wed' if present ---"
+          grep -oE '.{80}Wed.{80}' /tmp/page.html || echo "no literal Wed found"
+          echo "--- search for offset/day/week/date query param hints in HTML ---"
+          grep -oE '(href|data-[a-z-]*)="[^"]*(offset|week|day|date)[^"]*"' /tmp/page.html | sort -u | head -40 || true
+          echo "--- full page saved size ---"
+          wc -c /tmp/page.html
+
+      - name: Fetch a future-date query to see if URL param shifts the window
+        run: |
+          set -x
+          for q in \
+            'https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor&start=2026-07-15' \
+            'https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor&date=2026-07-15' \
+            'https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor&offset=7' \
+            'https://localtenniscourts.com/?q=highbury-fields%2Cislington-tennis-centre-outdoor&days=14' \
+            ; do
+            echo "=== $q ==="
+            curl -sS "$q" -H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' \
+              | grep -oE '(Wed|Thu|Fri|Sat|Sun|Mon|Tue) [0-9]+' | sort -u | tr '\n' ' '
+            echo
+            sleep 1.5
+          done
+
+      - name: Fetch JS bundles and grep for fetch/xhr endpoints
+        run: |
+          set -x
+          curl -sS -o /tmp/main.js 'https://localtenniscourts.com/assets/main-DLXMVjOc.js'
+          curl -sS -o /tmp/index.js 'https://localtenniscourts.com/assets/index-Bf7utVcV.js'
+          wc -c /tmp/main.js /tmp/index.js
+          echo "--- api-ish strings in main.js ---"
+          grep -oE '"(/[a-zA-Z0-9_/-]*api[a-zA-Z0-9_/-]*)"' /tmp/main.js | sort -u | head -40 || true
+          echo "--- api-ish strings in index.js ---"
+          grep -oE '"(/[a-zA-Z0-9_/-]*api[a-zA-Z0-9_/-]*)"' /tmp/index.js | sort -u | head -40 || true
+          echo "--- fetch( calls context in index.js (first 5) ---"
+          grep -oE '.{60}fetch\(.{80}' /tmp/index.js | head -5 || true
+          grep -oE '.{60}fetch\(.{80}' /tmp/main.js | head -5 || true
+          echo "--- look for 'offset' or 'weekOffset' or query param builders ---"
+          grep -oE '.{40}(weekOffset|dayOffset|startDate|numDays|daysAhead).{40}' /tmp/index.js | sort -u | head -20 || true
+          grep -oE '.{40}(weekOffset|dayOffset|startDate|numDays|daysAhead).{40}' /tmp/main.js | sort -u | head -20 || true
